@@ -1,0 +1,2936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Al Shirawi LMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#0f172a',
+            slatey: '#475569',
+            cloud: '#f8fafc',
+            panel: '#ffffff',
+            brand: '#1d4ed8',
+            brandDark: '#1e3a8a',
+            tealish: '#0f766e',
+            amberish: '#d97706',
+            mist: '#e2e8f0',
+          },
+          boxShadow: {
+            panel: '0 20px 60px rgba(15, 23, 42, 0.08)',
+            float: '0 26px 70px rgba(30, 41, 59, 0.14)',
+            soft: '0 8px 24px rgba(15, 23, 42, 0.08)',
+          },
+          borderRadius: {
+            xl2: '1.25rem',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'IBM Plex Sans', sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 30%),
+        radial-gradient(circle at top right, rgba(13,148,136,0.12), transparent 25%),
+        linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+      color: #0f172a;
+    }
+    h1, h2, h3, h4, h5, h6, .display-font { font-family: 'Manrope', sans-serif; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.35); border-radius: 999px; }
+    .glass {
+      background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(14px);
+    }
+    .page-shell {
+      background:
+        radial-gradient(circle at 10% 10%, rgba(29,78,216,0.08), transparent 22%),
+        radial-gradient(circle at 90% 10%, rgba(15,118,110,0.08), transparent 24%),
+        linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.98));
+    }
+    .hero-grid {
+      background-image:
+        linear-gradient(rgba(148,163,184,0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148,163,184,0.1) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .sidebar-link {
+      transition: all 0.2s ease;
+    }
+    .sidebar-link:hover {
+      transform: translateX(4px);
+    }
+    .table-wrap table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+    }
+    .table-wrap th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      z-index: 1;
+    }
+    .certificate-bg {
+      background:
+        linear-gradient(135deg, rgba(29,78,216,0.06), rgba(15,118,110,0.06)),
+        #ffffff;
+    }
+    @media (max-width: 1024px) {
+      .sidebar-mobile {
+        position: fixed;
+        inset: 78px 16px 16px 16px;
+        z-index: 40;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useEffect, useState } = React;
+
+    const STORAGE_PREFIX = 'alshirawi_lms_v2_';
+    const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@equipment\.ae$/i;
+    const SUPER_EMAIL = atob('dGFydW5pa2thLnVAZXF1aXBtZW50LmFl');
+    const BUSINESS_LINES = [
+      'Al Shirawi Equipment Co. – Process Equipment Division',
+      'Clear Water Solutions LLC',
+      'Chlor Generators',
+      'Silica Hill',
+      'THOR Middle East',
+      'Hydraulics Power Solution',
+      'Atlas Services',
+      'Other',
+    ];
+    const EMPLOYEE_TYPES = ['Blue-collar', 'White-collar'];
+    const COURSE_TYPES = ['Essential', 'Desirable'];
+    const TRAINING_TYPES = ['Behavioral', 'Functional'];
+    const BEHAVIORAL_FOCUS = ['Communication', 'Personality Development'];
+    const FUNCTIONAL_FOCUS = ['Domain-specific', 'Role-specific'];
+    const SESSION_HOURS = 8;
+
+    const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const fmtDate = (value) => value ? new Date(value).toLocaleDateString('en-GB') : '—';
+    const fmtDateTime = (value) => value ? new Date(value).toLocaleString('en-GB') : '—';
+    const clean = (value, max = 2000) => String(value || '').trim().replace(/[<>]/g, '').slice(0, max);
+    const slugName = (email) => email.split('@')[0].split(/[._-]+/).map(part => part ? part[0].toUpperCase() + part.slice(1) : '').join(' ');
+    const businessLineLabel = (user) => user.businessLine === 'Other' ? user.businessLineOther || 'Other' : user.businessLine || '—';
+    const roleLabel = (role) => ({ superadmin: 'Super Admin', admin: 'Admin', hr: 'HR', trainer: 'Trainer', learner: 'Learner' }[role] || 'Learner');
+    const roleTone = (role) => ({ superadmin: 'violet', admin: 'blue', hr: 'teal', trainer: 'amber', learner: 'slate' }[role] || 'slate');
+    const normalize = (value) => String(value || '').toLowerCase().trim();
+
+    const store = {
+      read(key, fallback) {
+        try {
+          const value = localStorage.getItem(STORAGE_PREFIX + key);
+          return value ? JSON.parse(value) : fallback;
+        } catch {
+          return fallback;
+        }
+      },
+      write(key, value) {
+        localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+      },
+      clear(key) {
+        localStorage.removeItem(STORAGE_PREFIX + key);
+      },
+    };
+
+    const readSession = () => {
+      const session = store.read('session', null);
+      if (!session || !session.email || !session.expiresAt) return null;
+      if (Date.now() > session.expiresAt) {
+        store.clear('session');
+        return null;
+      }
+      return session.email;
+    };
+
+    const setSession = (email) => {
+      store.write('session', { email, expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000 });
+    };
+
+    const usePersistentState = (key, fallback) => {
+      const [value, setValue] = useState(() => store.read(key, fallback));
+      useEffect(() => { store.write(key, value); }, [key, value]);
+      return [value, setValue];
+    };
+
+    const Logo = ({ className = 'h-9', mono = false }) => (
+      <img src="LOGO.jpg" alt="Al Shirawi" className={`${className} object-contain ${mono ? 'brightness-0 invert' : ''}`} />
+    );
+
+    const Button = ({ children, onClick, type = 'button', tone = 'primary', variant = 'solid', className = '', disabled = false }) => {
+      const styles = {
+        solid: {
+          primary: 'bg-brand text-white hover:bg-brandDark',
+          secondary: 'bg-tealish text-white hover:bg-[#0b625b]',
+          accent: 'bg-amberish text-white hover:bg-[#b35f05]',
+          slate: 'bg-slate-900 text-white hover:bg-slate-800',
+          danger: 'bg-red-600 text-white hover:bg-red-700',
+        },
+        soft: {
+          primary: 'bg-blue-50 text-brand hover:bg-blue-100',
+          secondary: 'bg-teal-50 text-tealish hover:bg-teal-100',
+          accent: 'bg-amber-50 text-amberish hover:bg-amber-100',
+          slate: 'bg-slate-100 text-slate-700 hover:bg-slate-200',
+          danger: 'bg-red-50 text-red-700 hover:bg-red-100',
+        },
+        outline: {
+          primary: 'border border-blue-200 text-brand hover:bg-blue-50',
+          secondary: 'border border-teal-200 text-tealish hover:bg-teal-50',
+          accent: 'border border-amber-200 text-amberish hover:bg-amber-50',
+          slate: 'border border-slate-200 text-slate-700 hover:bg-slate-50',
+          danger: 'border border-red-200 text-red-700 hover:bg-red-50',
+        },
+      };
+      return (
+        <button
+          type={type}
+          disabled={disabled}
+          onClick={onClick}
+          className={`inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${styles[variant][tone]} ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:-translate-y-0.5'} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    };
+
+    const Panel = ({ children, className = '' }) => (
+      <div className={`rounded-[24px] border border-white/70 bg-white shadow-panel ${className}`}>{children}</div>
+    );
+
+    const SectionTitle = ({ title, subtitle, action }) => (
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="display-font text-2xl font-800 tracking-tight text-ink md:text-3xl">{title}</h1>
+          {subtitle && <p className="mt-2 max-w-3xl text-sm text-slatey">{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+    );
+
+    const TextInput = ({ label, value, onChange, placeholder = '', type = 'text', required = false }) => (
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">{label}{required ? ' *' : ''}</span>
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+        />
+      </label>
+    );
+
+    const TextArea = ({ label, value, onChange, placeholder = '', rows = 4 }) => (
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+        <textarea
+          rows={rows}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+        />
+      </label>
+    );
+
+    const SelectInput = ({ label, value, onChange, options, required = false }) => (
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">{label}{required ? ' *' : ''}</span>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+    );
+
+    const CheckboxPill = ({ checked, onChange, label }) => (
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${checked ? 'border-blue-500 bg-blue-50 text-brand' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
+      >
+        {checked ? '✓ ' : ''}{label}
+      </button>
+    );
+
+    const Tag = ({ children, tone = 'slate' }) => {
+      const tones = {
+        blue: 'bg-blue-50 text-brand border-blue-100',
+        teal: 'bg-teal-50 text-tealish border-teal-100',
+        amber: 'bg-amber-50 text-amberish border-amber-100',
+        green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        red: 'bg-red-50 text-red-700 border-red-100',
+        violet: 'bg-violet-50 text-violet-700 border-violet-100',
+        slate: 'bg-slate-50 text-slate-700 border-slate-100',
+      };
+      return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${tones[tone]}`}>{children}</span>;
+    };
+
+    const StatCard = ({ label, value, hint, tone = 'blue' }) => {
+      const tones = {
+        blue: 'from-blue-600 to-blue-500',
+        teal: 'from-teal-600 to-teal-500',
+        amber: 'from-amber-500 to-orange-500',
+        slate: 'from-slate-800 to-slate-700',
+      };
+      return (
+        <Panel className="overflow-hidden">
+          <div className={`h-1.5 bg-gradient-to-r ${tones[tone]}`} />
+          <div className="p-5">
+            <p className="text-sm font-semibold text-slate-500">{label}</p>
+            <div className="mt-3 flex items-end justify-between gap-4">
+              <div className="display-font text-3xl font-800 text-ink">{value}</div>
+              {hint && <div className="text-xs text-slate-500">{hint}</div>}
+            </div>
+          </div>
+        </Panel>
+      );
+    };
+
+    const ProgressBar = ({ value }) => (
+      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-gradient-to-r from-brand to-tealish transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+      </div>
+    );
+
+    const EmptyState = ({ title, text }) => (
+      <Panel className="p-10 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-2xl">◎</div>
+        <h3 className="display-font text-xl font-700 text-ink">{title}</h3>
+        <p className="mx-auto mt-2 max-w-xl text-sm text-slatey">{text}</p>
+      </Panel>
+    );
+
+    const Modal = ({ title, subtitle, children, onClose, actions, wide = false }) => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+        <div className={`max-h-[92vh] w-full overflow-hidden rounded-[28px] bg-white shadow-float ${wide ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+            <div>
+              <h2 className="display-font text-2xl font-800 text-ink">{title}</h2>
+              {subtitle && <p className="mt-1 text-sm text-slatey">{subtitle}</p>}
+            </div>
+            <button onClick={onClose} className="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-50">Close</button>
+          </div>
+          <div className="max-h-[68vh] overflow-y-auto px-6 py-6">{children}</div>
+          {actions && <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 px-6 py-4">{actions}</div>}
+        </div>
+      </div>
+    );
+
+    const Divider = () => <div className="my-6 border-t border-slate-100" />;
+
+    const readFilesAsDataUrls = async (fileList) => {
+      const files = Array.from(fileList || []);
+      const results = await Promise.all(files.map((file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          id: uid(),
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+          dataUrl: reader.result,
+        });
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      })));
+      return results;
+    };
+
+    const readLabeledImagesAsDataUrls = async (entries) => {
+      const items = Array.from(entries || []);
+      const results = await Promise.all(items.map((entry) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          id: uid(),
+          name: entry.file.name,
+          label: clean(entry.label || entry.file.name, 120),
+          size: entry.file.size,
+          mimeType: entry.file.type,
+          dataUrl: reader.result,
+        });
+        reader.onerror = reject;
+        reader.readAsDataURL(entry.file);
+      })));
+      return results;
+    };
+
+    const moduleMatchesUser = (module, user) => {
+      const profile = module.applicability || {};
+      const hasEmployeeTypeRule = (profile.employeeTypes || []).length > 0;
+      const hasBusinessLineRule = (profile.businessLines || []).length > 0;
+      const designationRule = normalize(profile.designationKeyword);
+      const departmentRule = normalize(profile.departmentKeyword);
+      if (hasEmployeeTypeRule && !(user.employeeTypes || []).some((type) => profile.employeeTypes.includes(type))) return false;
+      if (hasBusinessLineRule && !profile.businessLines.includes(user.businessLine)) return false;
+      if (designationRule && !normalize(user.designation).includes(designationRule)) return false;
+      if (departmentRule && !normalize(user.department).includes(departmentRule)) return false;
+      return true;
+    };
+
+    const ruleMatchesUser = (rule, user) => {
+      if ((rule.employeeTypes || []).length > 0 && !(user.employeeTypes || []).some((type) => rule.employeeTypes.includes(type))) return false;
+      if ((rule.businessLines || []).length > 0 && !rule.businessLines.includes(user.businessLine)) return false;
+      if (normalize(rule.departmentKeyword) && !normalize(user.department).includes(normalize(rule.departmentKeyword))) return false;
+      if (normalize(rule.designationKeyword) && !normalize(user.designation).includes(normalize(rule.designationKeyword))) return false;
+      return true;
+    };
+
+    const getVisibleModulesForUser = (modules, courseId, user) => modules
+      .filter((module) => module.courseId === courseId)
+      .filter((module) => moduleMatchesUser(module, user))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    const getQuizAttemptsFor = (quizAttempts, email, quizId) => quizAttempts.filter((attempt) => attempt.email === email && attempt.quizId === quizId);
+    const hasPassedQuiz = (quizAttempts, email, quizId) => getQuizAttemptsFor(quizAttempts, email, quizId).some((attempt) => attempt.passed);
+    const isDirectVideoFile = (url) => /\.(mp4|webm|ogg)(\?.*)?$/i.test(url || '');
+    const getEmbeddableVideoUrl = (url) => {
+      const raw = String(url || '').trim();
+      if (!raw) return '';
+      try {
+        const parsed = new URL(raw);
+        const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+        if (host === 'youtube.com' || host === 'm.youtube.com') {
+          const videoId = parsed.searchParams.get('v');
+          if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+        }
+        if (host === 'youtu.be') {
+          const videoId = parsed.pathname.replace('/', '');
+          if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+        }
+        if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+          const parts = parsed.pathname.split('/').filter(Boolean);
+          const videoId = parts[parts.length - 1];
+          if (videoId) return `https://player.vimeo.com/video/${videoId}`;
+        }
+        if (raw.includes('/embed/')) return raw;
+        return raw;
+      } catch {
+        return raw;
+      }
+    };
+    const makeCourseTabUrl = (courseId) => {
+      const next = new URL(window.location.href);
+      next.searchParams.set('courseId', courseId);
+      next.searchParams.set('courseView', '1');
+      return next.toString();
+    };
+
+    const courseStatusForUser = ({ user, course, modules, assignments, progress, quizzes, quizAttempts }) => {
+      const assignment = assignments.find((item) => item.email === user.email && item.courseId === course.id);
+      if (!assignment) {
+        return {
+          assigned: false,
+          moduleCount: 0,
+          completedModules: 0,
+          progressPct: 0,
+          moduleQuizPassedCount: 0,
+          moduleQuizCount: 0,
+          courseQuizPassed: false,
+          completed: false,
+          pendingLabel: 'Not assigned',
+          visibleModules: [],
+          courseQuiz: null,
+        };
+      }
+
+      const visibleModules = getVisibleModulesForUser(modules, course.id, user);
+      const completedModuleIds = progress.filter((entry) => entry.email === user.email && entry.courseId === course.id).map((entry) => entry.moduleId);
+      const completedModules = visibleModules.filter((module) => completedModuleIds.includes(module.id)).length;
+      const progressPct = visibleModules.length ? Math.round((completedModules / visibleModules.length) * 100) : 100;
+      const moduleQuizzes = quizzes.filter((quiz) => quiz.scopeType === 'module' && visibleModules.some((module) => module.id === quiz.scopeId));
+      const moduleQuizPassedCount = moduleQuizzes.filter((quiz) => hasPassedQuiz(quizAttempts, user.email, quiz.id)).length;
+      const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
+      const courseQuizPassed = courseQuiz ? hasPassedQuiz(quizAttempts, user.email, courseQuiz.id) : true;
+      const hasRequirement = visibleModules.length > 0 || moduleQuizzes.length > 0 || !!courseQuiz;
+      const completed = hasRequirement && progressPct === 100 && moduleQuizPassedCount === moduleQuizzes.length && courseQuizPassed;
+      const pendingLabel = completed ? 'Completed' : !hasRequirement ? 'Content pending' : progressPct === 100 ? 'Quiz pending' : 'In progress';
+
+      return {
+        assigned: true,
+        moduleCount: visibleModules.length,
+        completedModules,
+        progressPct,
+        moduleQuizPassedCount,
+        moduleQuizCount: moduleQuizzes.length,
+        courseQuizPassed,
+        completed,
+        courseQuiz,
+        visibleModules,
+        pendingLabel,
+      };
+    };
+
+    const createPdfCertificate = ({ learner, course, certificate }) => {
+      const jsPDF = window.jspdf && window.jspdf.jsPDF;
+      if (!jsPDF) {
+        alert('PDF library is unavailable.');
+        return;
+      }
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      doc.setFillColor(248, 250, 252);
+      doc.rect(0, 0, 842, 595, 'F');
+      doc.setDrawColor(29, 78, 216);
+      doc.setLineWidth(4);
+      doc.rect(28, 28, 786, 539);
+      doc.setDrawColor(15, 118, 110);
+      doc.setLineWidth(1);
+      doc.rect(40, 40, 762, 515);
+      doc.setTextColor(30, 58, 138);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('AL SHIRAWI LMS', 421, 88, { align: 'center' });
+      doc.setFontSize(34);
+      doc.text('Certificate of Completion', 421, 160, { align: 'center' });
+      doc.setTextColor(71, 85, 105);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(16);
+      doc.text('This certifies that', 421, 214, { align: 'center' });
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('times', 'bold');
+      doc.setFontSize(30);
+      doc.text(learner.name, 421, 264, { align: 'center' });
+      doc.setTextColor(71, 85, 105);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(16);
+      doc.text('has successfully completed the training course', 421, 304, { align: 'center' });
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(24);
+      doc.text(course.title, 421, 350, { align: 'center' });
+      doc.setTextColor(71, 85, 105);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(15);
+      doc.text(`Issued on ${fmtDate(certificate.issuedAt)} | Badge awarded: ${certificate.badgeTitle}`, 421, 400, { align: 'center' });
+      doc.text(`Employee ID: ${learner.employeeId} | Company email: ${learner.email}`, 421, 430, { align: 'center' });
+      doc.setDrawColor(29, 78, 216);
+      doc.line(126, 500, 316, 500);
+      doc.line(526, 500, 716, 500);
+      doc.setFontSize(12);
+      doc.text('LMS Approval', 221, 520, { align: 'center' });
+      doc.text('Completion Record', 621, 520, { align: 'center' });
+      doc.save(`${course.title.replace(/[^a-z0-9]+/gi, '_')}_certificate.pdf`);
+    };
+
+    const LoginPage = ({ onLogin, onCreateAccount }) => {
+      const [mode, setMode] = useState('signin');
+      const [email, setEmail] = useState('');
+      const [error, setError] = useState('');
+      const [createError, setCreateError] = useState('');
+      const [createMessage, setCreateMessage] = useState('');
+      const [createForm, setCreateForm] = useState({
+        employeeId: '',
+        name: '',
+        designation: '',
+        email: '',
+        department: '',
+        businessLine: BUSINESS_LINES[0],
+        businessLineOther: '',
+        employeeTypes: [],
+      });
+
+      const submit = (e) => {
+        e.preventDefault();
+        const value = email.trim().toLowerCase();
+        if (!EMAIL_RE.test(value)) {
+          setError('Use a valid company email in the @equipment.ae format.');
+          return;
+        }
+        setError('');
+        onLogin(value);
+      };
+
+      const updateCreateForm = (field, value) => setCreateForm((prev) => ({ ...prev, [field]: value }));
+      const toggleType = (type) => setCreateForm((prev) => ({
+        ...prev,
+        employeeTypes: prev.employeeTypes.includes(type) ? prev.employeeTypes.filter((item) => item !== type) : [...prev.employeeTypes, type],
+      }));
+
+      const createAccount = (e) => {
+        e.preventDefault();
+        const result = onCreateAccount(createForm);
+        if (result.ok) {
+          setCreateMessage(result.message);
+          setCreateError('');
+          setCreateForm({
+            employeeId: '',
+            name: '',
+            designation: '',
+            email: '',
+            department: '',
+            businessLine: BUSINESS_LINES[0],
+            businessLineOther: '',
+            employeeTypes: [],
+          });
+          setMode('signin');
+        } else {
+          setCreateError(result.message);
+          setCreateMessage('');
+        }
+      };
+
+      return (
+        <div className="min-h-screen hero-grid px-4 py-8 md:px-8">
+          <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl items-center gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="relative overflow-hidden rounded-[32px] border border-white/70 bg-gradient-to-br from-slate-950 via-brandDark to-brand px-8 py-10 text-white shadow-float md:px-12 md:py-14">
+              <div className="absolute -left-12 top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+              <div className="absolute -right-8 bottom-0 h-52 w-52 rounded-full bg-teal-300/15 blur-3xl" />
+              <div className="relative z-10">
+                <Logo className="h-16 w-auto rounded-xl bg-white px-4 py-2 shadow-soft" />
+                <h1 className="display-font mt-8 max-w-2xl text-4xl font-800 leading-tight md:text-5xl">
+                  Al Shirawi Equipment Co Learning Management System
+                </h1>
+                <div className="mt-10 max-w-2xl rounded-[28px] border border-white/15 bg-white/10 p-7 backdrop-blur">
+                  <div className="display-font text-2xl font-800 leading-snug text-white md:text-3xl">
+                    “KEEP LEARNING, KEEP GROWING, KEEP WINNING.”
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Panel className="glass overflow-hidden">
+              <div className="border-b border-slate-100 px-8 py-8">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-2xl bg-blue-50 p-3">
+                    <Logo className="h-10 w-auto" />
+                  </div>
+                  <div>
+                    <h2 className="display-font text-3xl font-800 text-ink">{mode === 'signin' ? 'Sign In' : 'Create Account'}</h2>
+                    <p className="mt-1 text-sm text-slatey">Use your company email to access the LMS.</p>
+                  </div>
+                </div>
+                <div className="mt-6 grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
+                  <button type="button" onClick={() => setMode('signin')} className={`rounded-2xl px-4 py-2 text-sm font-semibold ${mode === 'signin' ? 'bg-white text-brand shadow-soft' : 'text-slate-500'}`}>Sign In</button>
+                  <button type="button" onClick={() => setMode('create')} className={`rounded-2xl px-4 py-2 text-sm font-semibold ${mode === 'create' ? 'bg-white text-brand shadow-soft' : 'text-slate-500'}`}>Create Account</button>
+                </div>
+              </div>
+
+              {mode === 'signin' ? (
+                <form onSubmit={submit} className="space-y-5 px-8 py-8">
+                  {createMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{createMessage}</div>}
+                  <TextInput
+                    label="Company Email"
+                    value={email}
+                    onChange={setEmail}
+                    placeholder="name@equipment.ae"
+                    type="email"
+                    required
+                  />
+                  {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+                  <Button type="submit" className="w-full justify-center py-3 text-base">Enter LMS</Button>
+                </form>
+              ) : (
+                <form onSubmit={createAccount} className="space-y-5 px-8 py-8">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextInput label="Employee ID" value={createForm.employeeId} onChange={(value) => updateCreateForm('employeeId', value)} required />
+                    <TextInput label="Name" value={createForm.name} onChange={(value) => updateCreateForm('name', value)} required />
+                    <TextInput label="Designation" value={createForm.designation} onChange={(value) => updateCreateForm('designation', value)} required />
+                    <TextInput label="Company Email" value={createForm.email} onChange={(value) => updateCreateForm('email', value)} placeholder="employee@equipment.ae" required />
+                    <TextInput label="Department" value={createForm.department} onChange={(value) => updateCreateForm('department', value)} required />
+                    <SelectInput
+                      label="Business Line"
+                      value={createForm.businessLine}
+                      onChange={(value) => updateCreateForm('businessLine', value)}
+                      options={BUSINESS_LINES.map((line) => ({ value: line, label: line }))}
+                      required
+                    />
+                  </div>
+
+                  {createForm.businessLine === 'Other' && (
+                    <TextInput
+                      label="Other Business Line"
+                      value={createForm.businessLineOther}
+                      onChange={(value) => updateCreateForm('businessLineOther', value)}
+                      required
+                    />
+                  )}
+
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <div className="mb-3 text-sm font-semibold text-slate-700">Employee Type</div>
+                    <div className="flex flex-wrap gap-3">
+                      {EMPLOYEE_TYPES.map((type) => (
+                        <CheckboxPill key={type} checked={createForm.employeeTypes.includes(type)} onChange={() => toggleType(type)} label={type} />
+                      ))}
+                    </div>
+                  </div>
+
+                  {createError && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
+                  <Button type="submit" className="w-full justify-center py-3 text-base">Create Account</Button>
+                </form>
+              )}
+            </Panel>
+          </div>
+        </div>
+      );
+    };
+
+    const Header = ({ user, onToggleNav, onLogout, onProfile }) => (
+      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-4 py-4 md:px-6">
+          <button onClick={onToggleNav} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 lg:hidden">Menu</button>
+          <div className="flex items-center gap-4">
+            <div className="rounded-2xl bg-slate-50 px-3 py-2 shadow-soft">
+              <Logo className="h-8 w-auto" />
+            </div>
+            <div>
+              <div className="display-font text-lg font-800 text-ink">Al Shirawi LMS</div>
+              <div className="text-xs font-medium uppercase tracking-[0.22em] text-slate-400">Learning Management System</div>
+            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="hidden text-right md:block">
+              <div className="text-sm font-semibold text-ink">{user.name}</div>
+              <div className="text-xs text-slate-500">{roleLabel(user.role)} • {user.email}</div>
+            </div>
+            <button onClick={onProfile} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-tealish text-sm font-bold text-white shadow-soft">
+              {(user.name || '?')[0].toUpperCase()}
+            </button>
+            <Button tone="slate" variant="soft" onClick={onLogout}>Sign Out</Button>
+          </div>
+        </div>
+      </header>
+    );
+
+    const Sidebar = ({ role, view, setView, open, setOpen }) => {
+      const adminViews = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'participants', label: 'Participant Management' },
+        { id: 'course-mgmt', label: 'Course Management' },
+        { id: 'module-mgmt', label: 'Module Management' },
+        { id: 'assignment-mgmt', label: 'Assignment Management' },
+        { id: 'quiz-mgmt', label: 'Quiz Management' },
+        { id: 'reports', label: 'Reports' },
+        { id: 'recognition', label: 'Certificates & Badges' },
+        { id: 'profile', label: 'Profile' },
+      ];
+      const learnerViews = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'my-courses', label: 'My Courses' },
+        { id: 'progress', label: 'Progress / Grades / Clearance' },
+        { id: 'recognition', label: 'Certificates & Badges' },
+        { id: 'profile', label: 'Profile' },
+      ];
+      const items = ['superadmin', 'admin', 'hr'].includes(role) ? adminViews : learnerViews;
+
+      return (
+        <>
+          {open && <div className="fixed inset-0 z-20 bg-slate-950/30 lg:hidden" onClick={() => setOpen(false)} />}
+          <aside className={`glass border border-white/60 p-4 shadow-panel lg:sticky lg:top-[88px] lg:h-[calc(100vh-104px)] lg:w-[280px] lg:min-w-[280px] lg:self-start ${open ? 'sidebar-mobile block rounded-[28px]' : 'hidden lg:block lg:rounded-[28px]'}`}>
+            <div className="mb-6 px-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Navigation</div>
+            </div>
+            <nav className="space-y-2">
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => { setView(item.id); setOpen(false); }}
+                  className={`sidebar-link flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold ${view === item.id ? 'bg-gradient-to-r from-blue-50 to-teal-50 text-brand shadow-soft' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <span>{item.label}</span>
+                  {view === item.id && <span className="text-xs uppercase tracking-[0.2em] text-blue-500">Live</span>}
+                </button>
+              ))}
+            </nav>
+          </aside>
+        </>
+      );
+    };
+
+    const HRAccountSection = ({ currentUser, users, setUsers, assignmentRules, setAssignmentRules, assignments, setAssignments }) => {
+      const [form, setForm] = useState({
+        employeeId: '',
+        name: '',
+        designation: '',
+        email: '',
+        department: '',
+        businessLine: BUSINESS_LINES[0],
+        businessLineOther: '',
+        employeeTypes: [],
+        role: 'learner',
+      });
+      const [message, setMessage] = useState('');
+      const [error, setError] = useState('');
+
+      const canCreateElevated = ['superadmin', 'admin'].includes(currentUser.role);
+      const recentUsers = [...users].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+      const toggleType = (type) => setForm((prev) => ({
+        ...prev,
+        employeeTypes: prev.employeeTypes.includes(type) ? prev.employeeTypes.filter((item) => item !== type) : [...prev.employeeTypes, type],
+      }));
+
+      const syncAssignmentsForNewUser = (user) => {
+        const matchingRules = assignmentRules.filter((rule) => ruleMatchesUser(rule, user));
+        if (!matchingRules.length) return;
+        const additions = [];
+        matchingRules.forEach((rule) => {
+          const exists = assignments.some((item) => item.email === user.email && item.courseId === rule.courseId);
+          if (!exists) {
+            additions.push({
+              id: uid(),
+              email: user.email,
+              courseId: rule.courseId,
+              dueDate: rule.dueDate || '',
+              assignedAt: Date.now(),
+              source: `Rule: ${rule.name}`,
+            });
+          }
+        });
+        if (additions.length) {
+          setAssignments([...assignments, ...additions]);
+        }
+      };
+
+      const submit = (e) => {
+        e.preventDefault();
+        setMessage('');
+        setError('');
+        const email = clean(form.email, 120).toLowerCase();
+        if (!clean(form.employeeId, 50) || !clean(form.name, 120) || !clean(form.designation, 120) || !clean(form.department, 120)) {
+          setError('Complete all employee profile fields before creating the account.');
+          return;
+        }
+        if (!EMAIL_RE.test(email)) {
+          setError('Employee email must be a valid company email in the @equipment.ae format.');
+          return;
+        }
+        if (form.employeeTypes.length === 0) {
+          setError('Select at least one employee type.');
+          return;
+        }
+        if (form.businessLine === 'Other' && !clean(form.businessLineOther, 120)) {
+          setError('Enter the manual business line name when selecting Other.');
+          return;
+        }
+        if (users.some((user) => user.email === email)) {
+          setError('An account with this email already exists.');
+          return;
+        }
+
+        const role = canCreateElevated ? form.role : 'learner';
+        const user = {
+          id: uid(),
+          employeeId: clean(form.employeeId, 50),
+          name: clean(form.name, 120),
+          designation: clean(form.designation, 120),
+          email,
+          department: clean(form.department, 120),
+          businessLine: form.businessLine,
+          businessLineOther: form.businessLine === 'Other' ? clean(form.businessLineOther, 120) : '',
+          employeeTypes: form.employeeTypes,
+          role,
+          createdAt: Date.now(),
+          createdBy: currentUser.email,
+        };
+
+        const nextUsers = [...users, user];
+        setUsers(nextUsers);
+        syncAssignmentsForNewUser(user);
+        setForm({
+          employeeId: '',
+          name: '',
+          designation: '',
+          email: '',
+          department: '',
+          businessLine: BUSINESS_LINES[0],
+          businessLineOther: '',
+          employeeTypes: [],
+          role: 'learner',
+        });
+        setMessage(`${user.name} created successfully. The employee can now sign in with ${user.email}.`);
+      };
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Create Account"
+            subtitle="Create employee accounts using company email IDs."
+          />
+
+          <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+            <Panel className="p-6 md:p-8">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="display-font text-2xl font-800 text-ink">Employee Account Form</h2>
+                  <p className="mt-2 text-sm text-slatey">Use the employee’s company email as the sign-in identity.</p>
+                </div>
+                <Tag tone="blue">Account Setup</Tag>
+              </div>
+              <form onSubmit={submit} className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextInput label="Employee ID" value={form.employeeId} onChange={(value) => update('employeeId', value)} required />
+                  <TextInput label="Employee Name" value={form.name} onChange={(value) => update('name', value)} required />
+                  <TextInput label="Designation" value={form.designation} onChange={(value) => update('designation', value)} required />
+                  <TextInput label="Company Email" value={form.email} onChange={(value) => update('email', value)} placeholder="employee@equipment.ae" required />
+                  <TextInput label="Department" value={form.department} onChange={(value) => update('department', value)} required />
+                  <SelectInput
+                    label="Business Line"
+                    value={form.businessLine}
+                    onChange={(value) => update('businessLine', value)}
+                    options={BUSINESS_LINES.map((line) => ({ value: line, label: line }))}
+                    required
+                  />
+                </div>
+
+                {form.businessLine === 'Other' && (
+                  <TextInput
+                    label="Other Business Line"
+                    value={form.businessLineOther}
+                    onChange={(value) => update('businessLineOther', value)}
+                    required
+                  />
+                )}
+
+                <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                  <div className="mb-3 text-sm font-semibold text-slate-700">Employee Type</div>
+                  <div className="flex flex-wrap gap-3">
+                    {EMPLOYEE_TYPES.map((type) => (
+                      <CheckboxPill
+                        key={type}
+                        checked={form.employeeTypes.includes(type)}
+                        onChange={() => toggleType(type)}
+                        label={type}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {canCreateElevated && (
+                  <SelectInput
+                    label="Access Role"
+                    value={form.role}
+                    onChange={(value) => update('role', value)}
+                    options={[
+                      { value: 'learner', label: 'Learner' },
+                      { value: 'trainer', label: 'Trainer' },
+                      { value: 'hr', label: 'HR' },
+                      { value: 'admin', label: 'Admin' },
+                    ]}
+                  />
+                )}
+
+                {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+                {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</div>}
+                <div className="flex flex-wrap gap-3">
+                  <Button type="submit">Create LMS Account</Button>
+                  <Tag tone="teal">Company email sign-in only</Tag>
+                </div>
+              </form>
+            </Panel>
+
+            <Panel className="p-6 md:p-8">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h2 className="display-font text-2xl font-800 text-ink">Recently Created Accounts</h2>
+                  <p className="mt-2 text-sm text-slatey">Only real users created in this app appear below.</p>
+                </div>
+                <Tag tone="slate">{recentUsers.length} Total</Tag>
+              </div>
+              <div className="space-y-3">
+                {recentUsers.length === 0 ? (
+                  <EmptyState title="No accounts yet" text="Start with the HR form to create your first employee or admin account." />
+                ) : recentUsers.map((user) => (
+                  <div key={user.id} className="rounded-[22px] border border-slate-100 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="display-font text-lg font-800 text-ink">{user.name}</div>
+                        <div className="mt-1 text-sm text-slatey">{user.email}</div>
+                        <div className="mt-2 text-xs text-slate-500">
+                          {user.employeeId} • {user.designation} • {user.department}
+                        </div>
+                      </div>
+                      <Tag tone={roleTone(user.role)}>{roleLabel(user.role)}</Tag>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(user.employeeTypes || []).map((type) => <Tag key={type} tone="blue">{type}</Tag>)}
+                      <Tag tone="teal">{businessLineLabel(user)}</Tag>
+                      <Tag tone="slate">Created {fmtDateTime(user.createdAt)}</Tag>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          </div>
+        </div>
+      );
+    };
+
+    const ParticipantManagement = ({ users, setUsers, currentUser }) => {
+      const [query, setQuery] = useState('');
+      const canManageRoles = ['superadmin', 'admin'].includes(currentUser.role);
+      const filtered = users.filter((user) => {
+        const haystack = [user.name, user.email, user.department, user.designation, user.employeeId, businessLineLabel(user)].join(' ').toLowerCase();
+        return haystack.includes(query.toLowerCase());
+      });
+      const changeRole = (targetId, nextRole) => {
+        const target = users.find((user) => user.id === targetId);
+        if (!target || target.role === 'superadmin') return;
+        const nextUsers = users.map((user) => user.id === targetId ? { ...user, role: nextRole } : user);
+        setUsers(nextUsers);
+      };
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Participant Management"
+            subtitle="A clean participant register showing only accounts created inside this LMS."
+          />
+          <Panel className="p-5">
+            <TextInput label="Search Participants" value={query} onChange={setQuery} placeholder="Search by employee, email, designation, department, or business line" />
+          </Panel>
+          <Panel className="overflow-hidden">
+            {filtered.length === 0 ? (
+              <div className="p-6">
+                <EmptyState title="No matching participants" text="Try a broader search or create new employee accounts from the HR workflow." />
+              </div>
+            ) : (
+              <div className="table-wrap overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                      <th className="px-5 py-4">Employee</th>
+                      <th className="px-5 py-4">Role</th>
+                      <th className="px-5 py-4">Profile</th>
+                      <th className="px-5 py-4">Business Line</th>
+                      <th className="px-5 py-4">Created</th>
+                      {canManageRoles && <th className="px-5 py-4">Access Control</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((user) => (
+                      <tr key={user.id} className="border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50">
+                        <td className="px-5 py-4">
+                          <div className="font-semibold text-ink">{user.name}</div>
+                          <div className="mt-1 text-xs text-slate-500">{user.email}</div>
+                          <div className="mt-1 text-xs text-slate-500">ID: {user.employeeId}</div>
+                        </td>
+                        <td className="px-5 py-4"><Tag tone={roleTone(user.role)}>{roleLabel(user.role)}</Tag></td>
+                        <td className="px-5 py-4">
+                          <div>{user.designation}</div>
+                          <div className="mt-1 text-xs text-slate-500">{user.department}</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {(user.employeeTypes || []).map((type) => <Tag key={type} tone="blue">{type}</Tag>)}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">{businessLineLabel(user)}</td>
+                        <td className="px-5 py-4">{fmtDateTime(user.createdAt)}</td>
+                        {canManageRoles && (
+                          <td className="px-5 py-4">
+                            {user.role === 'superadmin' ? (
+                              <Tag tone="violet">Protected</Tag>
+                            ) : (
+                              <select
+                                value={user.role}
+                                onChange={(e) => changeRole(user.id, e.target.value)}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400"
+                              >
+                                <option value="learner">Learner</option>
+                                <option value="trainer">Trainer</option>
+                                <option value="admin">Admin</option>
+                              </select>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </div>
+      );
+    };
+
+    const CourseManagement = ({ courses, setCourses }) => {
+      const initialForm = {
+        title: '',
+        description: '',
+        type: 'Essential',
+        trainingType: 'Behavioral',
+        focusArea: 'Communication',
+      };
+      const [editing, setEditing] = useState(null);
+      const [form, setForm] = useState(initialForm);
+      const [error, setError] = useState('');
+      const isEditing = Boolean(editing && editing.id);
+
+      const update = (field, value) => {
+        setForm((prev) => {
+          const next = { ...prev, [field]: value };
+          if (field === 'trainingType') {
+            next.focusArea = value === 'Behavioral' ? 'Communication' : 'Domain-specific';
+          }
+          return next;
+        });
+      };
+
+      const openEdit = (course) => {
+        setEditing(course);
+        setForm(course);
+        setError('');
+      };
+
+      const openNew = () => {
+        setEditing({});
+        setForm(initialForm);
+        setError('');
+      };
+
+      const save = () => {
+        if (!clean(form.title, 160)) {
+          setError('Course title is required.');
+          return;
+        }
+        const payload = {
+          id: isEditing ? editing.id : uid(),
+          title: clean(form.title, 160),
+          description: clean(form.description, 800),
+          type: form.type,
+          trainingType: form.trainingType,
+          focusArea: form.focusArea,
+          createdAt: isEditing ? editing.createdAt : Date.now(),
+        };
+        const next = isEditing ? courses.map((course) => course.id === editing.id ? payload : course) : [...courses, payload];
+        setCourses(next);
+        setEditing(null);
+        setForm(initialForm);
+        setError('');
+      };
+
+      const remove = (id) => {
+        if (!window.confirm('Delete this course?')) return;
+        setCourses(courses.filter((course) => course.id !== id));
+      };
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Course Management"
+            subtitle="Create the orientation and training programs that will later be populated with modules, quizzes, assignments, and certificates."
+            action={<Button onClick={openNew}>Add Course</Button>}
+          />
+          <Panel className="overflow-hidden">
+            {courses.length === 0 ? (
+              <div className="p-6">
+                <EmptyState title="No courses created" text="Create your first essential or desirable course to begin the admin flow." />
+              </div>
+            ) : (
+              <div className="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
+                {courses.map((course) => (
+                  <div key={course.id} className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-5 shadow-soft">
+                    <div className="flex flex-wrap gap-2">
+                      <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                      <Tag tone="blue">{course.trainingType}</Tag>
+                      <Tag tone="slate">{course.focusArea}</Tag>
+                    </div>
+                    <h3 className="display-font mt-4 text-xl font-800 text-ink">{course.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-slatey">{course.description || 'No description added yet.'}</p>
+                    <div className="mt-5 flex gap-3">
+                      <Button variant="soft" onClick={() => openEdit(course)}>Edit</Button>
+                      <Button variant="soft" tone="danger" onClick={() => remove(course.id)}>Delete</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          {editing && (
+            <Modal
+              title={isEditing ? 'Edit Course' : 'Add Course'}
+              subtitle="Define the learning requirement, the training class, and the focus area."
+              onClose={() => setEditing(null)}
+              actions={
+                <>
+                  <Button variant="soft" tone="slate" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button onClick={save}>Save Course</Button>
+                </>
+              }
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextInput label="Course Title" value={form.title} onChange={(value) => update('title', value)} required />
+                <SelectInput label="Course Requirement" value={form.type} onChange={(value) => update('type', value)} options={COURSE_TYPES.map((item) => ({ value: item, label: item }))} />
+                <SelectInput label="Training Type" value={form.trainingType} onChange={(value) => update('trainingType', value)} options={TRAINING_TYPES.map((item) => ({ value: item, label: item }))} />
+                <SelectInput
+                  label="Focus Area"
+                  value={form.focusArea}
+                  onChange={(value) => update('focusArea', value)}
+                  options={(form.trainingType === 'Behavioral' ? BEHAVIORAL_FOCUS : FUNCTIONAL_FOCUS).map((item) => ({ value: item, label: item }))}
+                />
+              </div>
+              <div className="mt-4">
+                <TextArea label="Course Description" value={form.description} onChange={(value) => update('description', value)} rows={5} />
+              </div>
+              {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+            </Modal>
+          )}
+        </div>
+      );
+    };
+
+    const ModuleManagement = ({ courses, modules, setModules }) => {
+      const blankForm = {
+        courseId: courses[0]?.id || '',
+        title: '',
+        description: '',
+        order: 1,
+        videoUrl: '',
+        transcript: '',
+        notes: '',
+        applicability: {
+          employeeTypes: [],
+          designationKeyword: '',
+          departmentKeyword: '',
+          businessLines: [],
+        },
+        documents: [],
+        images: [],
+      };
+      const [editing, setEditing] = useState(null);
+      const [form, setForm] = useState(blankForm);
+      const [pendingDocs, setPendingDocs] = useState([]);
+      const [pendingImages, setPendingImages] = useState([]);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        if (!editing) {
+          setForm((prev) => ({ ...prev, courseId: courses[0]?.id || '' }));
+        }
+      }, [courses.length]);
+
+      const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+      const updateApplicability = (field, value) => setForm((prev) => ({ ...prev, applicability: { ...prev.applicability, [field]: value } }));
+      const toggleArrayValue = (field, value) => {
+        const current = form.applicability[field] || [];
+        updateApplicability(field, current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+      };
+
+      const openNew = () => {
+        setEditing({});
+        setForm({
+          courseId: courses[0]?.id || '',
+          title: '',
+          description: '',
+          order: modules.filter((module) => module.courseId === (courses[0]?.id || '')).length + 1 || 1,
+          videoUrl: '',
+          transcript: '',
+          notes: '',
+          applicability: { employeeTypes: [], designationKeyword: '', departmentKeyword: '', businessLines: [] },
+          documents: [],
+          images: [],
+        });
+        setPendingDocs([]);
+        setPendingImages([]);
+        setError('');
+      };
+
+      const openEdit = (module) => {
+        setEditing(module);
+        setForm({
+          ...module,
+          applicability: module.applicability || { employeeTypes: [], designationKeyword: '', departmentKeyword: '', businessLines: [] },
+          documents: module.documents || [],
+          images: module.images || [],
+        });
+        setPendingDocs([]);
+        setPendingImages([]);
+        setError('');
+      };
+
+      const removeAsset = (field, id) => setForm((prev) => ({ ...prev, [field]: (prev[field] || []).filter((item) => item.id !== id) }));
+      const onImageFileChange = (files) => {
+        const nextEntries = Array.from(files || []).map((file) => ({
+          id: uid(),
+          file,
+          label: file.name.replace(/\.[^/.]+$/, ''),
+        }));
+        setPendingImages(nextEntries);
+      };
+      const updatePendingImageLabel = (id, value) => {
+        setPendingImages((prev) => prev.map((entry) => entry.id === id ? { ...entry, label: value } : entry));
+      };
+
+      const save = async () => {
+        if (!form.courseId || !clean(form.title, 160)) {
+          setError('Select a course and enter a module title.');
+          return;
+        }
+        try {
+          const docs = await readFilesAsDataUrls(pendingDocs);
+          const images = await readLabeledImagesAsDataUrls(pendingImages);
+          const payload = {
+            id: editing.id || uid(),
+            courseId: form.courseId,
+            title: clean(form.title, 160),
+            description: clean(form.description, 700),
+            order: Number(form.order) || 1,
+            videoUrl: clean(form.videoUrl, 400),
+            transcript: clean(form.transcript, 6000),
+            notes: clean(form.notes, 4000),
+            applicability: {
+              employeeTypes: form.applicability.employeeTypes || [],
+              designationKeyword: clean(form.applicability.designationKeyword, 80),
+              departmentKeyword: clean(form.applicability.departmentKeyword, 80),
+              businessLines: form.applicability.businessLines || [],
+            },
+            documents: [...(form.documents || []), ...docs],
+            images: [...(form.images || []), ...images],
+            createdAt: editing.createdAt || Date.now(),
+          };
+          const next = editing.id ? modules.map((module) => module.id === editing.id ? payload : module) : [...modules, payload];
+          setModules(next);
+          setEditing(null);
+        } catch {
+          setError('One or more files could not be processed.');
+        }
+      };
+
+      const remove = (id) => {
+        if (!window.confirm('Delete this module?')) return;
+        setModules(modules.filter((module) => module.id !== id));
+      };
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Module Management"
+            subtitle="Add videos, documents, pictures, transcripts, and profile-based module applicability inside each course."
+            action={<Button onClick={openNew} disabled={courses.length === 0}>Add Module</Button>}
+          />
+          {courses.length === 0 && <Panel className="p-6 text-sm text-slatey">Create at least one course before adding modules.</Panel>}
+          <div className="grid gap-4">
+            {modules.length === 0 ? (
+              <EmptyState title="No modules created" text="Modules will hold videos, resources, and the learner-facing training content experience." />
+            ) : (
+              modules
+                .slice()
+                .sort((a, b) => (a.order || 0) - (b.order || 0))
+                .map((module) => {
+                  const course = courses.find((item) => item.id === module.courseId);
+                  return (
+                    <Panel key={module.id} className="p-6">
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <div>
+                          <div className="mb-3 flex flex-wrap gap-2">
+                            <Tag tone="blue">Module #{module.order}</Tag>
+                            <Tag tone="teal">{course?.title || 'Unknown Course'}</Tag>
+                            {module.videoUrl && <Tag tone="amber">Video</Tag>}
+                            {(module.documents || []).length > 0 && <Tag tone="slate">{module.documents.length} Documents</Tag>}
+                            {(module.images || []).length > 0 && <Tag tone="slate">{module.images.length} Images</Tag>}
+                          </div>
+                          <h3 className="display-font text-2xl font-800 text-ink">{module.title}</h3>
+                          <p className="mt-2 text-sm leading-6 text-slatey">{module.description || 'No module description added yet.'}</p>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {(module.applicability?.employeeTypes || []).map((item) => <Tag key={item} tone="blue">{item}</Tag>)}
+                            {(module.applicability?.businessLines || []).map((item) => <Tag key={item} tone="teal">{item}</Tag>)}
+                            {module.applicability?.designationKeyword && <Tag tone="slate">Designation: {module.applicability.designationKeyword}</Tag>}
+                            {module.applicability?.departmentKeyword && <Tag tone="slate">Department: {module.applicability.departmentKeyword}</Tag>}
+                            {!(module.applicability?.employeeTypes || []).length && !(module.applicability?.businessLines || []).length && !module.applicability?.designationKeyword && !module.applicability?.departmentKeyword && (
+                              <Tag tone="green">Visible to all assigned learners</Tag>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-3">
+                          <Button variant="soft" onClick={() => openEdit(module)}>Edit</Button>
+                          <Button variant="soft" tone="danger" onClick={() => remove(module.id)}>Delete</Button>
+                        </div>
+                      </div>
+                    </Panel>
+                  );
+                })
+            )}
+          </div>
+
+          {editing && (
+            <Modal
+              title={editing.id ? 'Edit Module' : 'Create Module'}
+              subtitle="Use one module for each video, document bundle, or learning unit."
+              onClose={() => setEditing(null)}
+              actions={
+                <>
+                  <Button variant="soft" tone="slate" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button onClick={save}>Save Module</Button>
+                </>
+              }
+              wide
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <SelectInput label="Course" value={form.courseId} onChange={(value) => update('courseId', value)} options={courses.map((course) => ({ value: course.id, label: course.title }))} required />
+                <TextInput label="Module Title" value={form.title} onChange={(value) => update('title', value)} required />
+                <TextInput label="Display Order" value={String(form.order)} onChange={(value) => update('order', value)} type="number" />
+                <TextInput label="Video URL" value={form.videoUrl} onChange={(value) => update('videoUrl', value)} placeholder="YouTube / Vimeo / hosted video link" />
+              </div>
+              <div className="mt-4 grid gap-4">
+                <TextArea label="Module Description" value={form.description} onChange={(value) => update('description', value)} rows={3} />
+                <TextArea label="Transcript / Script" value={form.transcript} onChange={(value) => update('transcript', value)} rows={5} />
+                <TextArea label="Notes / Learning Guidance" value={form.notes} onChange={(value) => update('notes', value)} rows={4} />
+              </div>
+
+              <Divider />
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                  <h3 className="display-font text-lg font-800 text-ink">Profile-Based Visibility</h3>
+                  <p className="mt-2 text-sm text-slatey">Use these rules when modules should only appear for specific employee profiles.</p>
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <div className="mb-2 text-sm font-semibold text-slate-700">Employee Types</div>
+                      <div className="flex flex-wrap gap-2">
+                        {EMPLOYEE_TYPES.map((type) => (
+                          <CheckboxPill key={type} checked={(form.applicability.employeeTypes || []).includes(type)} onChange={() => toggleArrayValue('employeeTypes', type)} label={type} />
+                        ))}
+                      </div>
+                    </div>
+                    <TextInput label="Designation Contains" value={form.applicability.designationKeyword} onChange={(value) => updateApplicability('designationKeyword', value)} placeholder="e.g. technician" />
+                    <TextInput label="Department Contains" value={form.applicability.departmentKeyword} onChange={(value) => updateApplicability('departmentKeyword', value)} placeholder="e.g. operations" />
+                    <div>
+                      <div className="mb-2 text-sm font-semibold text-slate-700">Business Lines</div>
+                      <div className="flex flex-wrap gap-2">
+                        {BUSINESS_LINES.filter((line) => line !== 'Other').map((line) => (
+                          <CheckboxPill key={line} checked={(form.applicability.businessLines || []).includes(line)} onChange={() => toggleArrayValue('businessLines', line)} label={line} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="display-font text-lg font-800 text-ink">Documents</h3>
+                    <p className="mt-2 text-sm text-slatey">Add PDF, Word, PowerPoint, or other training documents.</p>
+                    <input type="file" multiple className="mt-4 block w-full text-sm" onChange={(e) => setPendingDocs(e.target.files)} />
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(form.documents || []).map((file) => (
+                        <span key={file.id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-soft">
+                          {file.name}
+                          <button type="button" onClick={() => removeAsset('documents', file.id)} className="text-red-600">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="display-font text-lg font-800 text-ink">Pictures / Images</h3>
+                    <p className="mt-2 text-sm text-slatey">Add diagrams, posters, reference visuals, or supporting images.</p>
+                    <input type="file" accept="image/*" multiple className="mt-4 block w-full text-sm" onChange={(e) => onImageFileChange(e.target.files)} />
+                    {pendingImages.length > 0 && (
+                      <div className="mt-4 space-y-3 rounded-[20px] bg-white p-4 shadow-soft">
+                        <div className="text-sm font-semibold text-slate-700">Label New Pictures</div>
+                        {pendingImages.map((entry) => (
+                          <div key={entry.id} className="grid gap-3 md:grid-cols-[160px_1fr] md:items-center">
+                            <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{entry.file.name}</div>
+                            <input
+                              value={entry.label}
+                              onChange={(e) => updatePendingImageLabel(entry.id, e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                              placeholder="Picture label"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-4 overflow-x-auto">
+                      <div className="flex gap-3 pb-2">
+                      {(form.images || []).map((file) => (
+                        <div key={file.id} className="min-w-[220px] overflow-hidden rounded-[20px] border border-white bg-white shadow-soft">
+                          <img src={file.dataUrl} alt={file.label || file.name} className="h-28 w-full object-cover" />
+                          <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-slate-600">
+                            <div className="min-w-0">
+                              <div className="truncate">{file.label || file.name}</div>
+                              <div className="truncate text-[11px] text-slate-400">{file.name}</div>
+                            </div>
+                            <button type="button" onClick={() => removeAsset('images', file.id)} className="text-red-600">Remove</button>
+                          </div>
+                        </div>
+                      ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+            </Modal>
+          )}
+        </div>
+      );
+    };
+
+    const AssignmentManagement = ({ users, courses, assignments, setAssignments, assignmentRules, setAssignmentRules }) => {
+      const learners = users.filter((user) => user.role === 'learner');
+      const [manual, setManual] = useState({ email: learners[0]?.email || '', courseId: courses[0]?.id || '', dueDate: '' });
+      const [rule, setRule] = useState({
+        name: '',
+        courseId: courses[0]?.id || '',
+        dueDate: '',
+        employeeTypes: [],
+        designationKeyword: '',
+        departmentKeyword: '',
+        businessLines: [],
+      });
+      const [message, setMessage] = useState('');
+
+      useEffect(() => {
+        setManual((prev) => ({ ...prev, email: learners[0]?.email || prev.email || '', courseId: courses[0]?.id || prev.courseId || '' }));
+        setRule((prev) => ({ ...prev, courseId: courses[0]?.id || prev.courseId || '' }));
+      }, [learners.length, courses.length]);
+
+      const addManual = () => {
+        if (!manual.email || !manual.courseId) {
+          setMessage('Select a learner and a course first.');
+          return;
+        }
+        const exists = assignments.some((item) => item.email === manual.email && item.courseId === manual.courseId);
+        if (exists) {
+          setMessage('That learner already has this course assigned.');
+          return;
+        }
+        setAssignments([
+          ...assignments,
+          {
+            id: uid(),
+            email: manual.email,
+            courseId: manual.courseId,
+            dueDate: manual.dueDate,
+            assignedAt: Date.now(),
+            source: 'Manual assignment',
+          },
+        ]);
+        setMessage('Manual course assignment created.');
+      };
+
+      const toggleRuleValue = (field, value) => {
+        const current = rule[field] || [];
+        setRule((prev) => ({ ...prev, [field]: current.includes(value) ? current.filter((item) => item !== value) : [...current, value] }));
+      };
+
+      const applyRuleToLearners = (nextRule, currentAssignments) => {
+        const additions = [];
+        learners.forEach((learner) => {
+          if (!ruleMatchesUser(nextRule, learner)) return;
+          const exists = currentAssignments.some((item) => item.email === learner.email && item.courseId === nextRule.courseId);
+          if (!exists) {
+            additions.push({
+              id: uid(),
+              email: learner.email,
+              courseId: nextRule.courseId,
+              dueDate: nextRule.dueDate,
+              assignedAt: Date.now(),
+              source: `Rule: ${nextRule.name}`,
+            });
+          }
+        });
+        if (additions.length) {
+          setAssignments([...currentAssignments, ...additions]);
+        }
+      };
+
+      const saveRule = () => {
+        if (!clean(rule.name, 120) || !rule.courseId) {
+          setMessage('Enter a rule name and choose a target course.');
+          return;
+        }
+        const nextRule = {
+          id: uid(),
+          name: clean(rule.name, 120),
+          courseId: rule.courseId,
+          dueDate: rule.dueDate,
+          employeeTypes: rule.employeeTypes,
+          designationKeyword: clean(rule.designationKeyword, 80),
+          departmentKeyword: clean(rule.departmentKeyword, 80),
+          businessLines: rule.businessLines,
+          createdAt: Date.now(),
+        };
+        setAssignmentRules([...assignmentRules, nextRule]);
+        applyRuleToLearners(nextRule, assignments);
+        setRule({
+          name: '',
+          courseId: courses[0]?.id || '',
+          dueDate: '',
+          employeeTypes: [],
+          designationKeyword: '',
+          departmentKeyword: '',
+          businessLines: [],
+        });
+        setMessage('Assignment rule saved and applied to matching employees.');
+      };
+
+      const removeAssignment = (id) => setAssignments(assignments.filter((item) => item.id !== id));
+      const removeRule = (id) => setAssignmentRules(assignmentRules.filter((item) => item.id !== id));
+      const userOf = (email) => users.find((user) => user.email === email);
+      const courseOf = (courseId) => courses.find((course) => course.id === courseId);
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Assignment Management"
+            subtitle="Assign full courses manually or build reusable assignment logic based on employee type, designation, department, and business line."
+          />
+          {message && <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-brand">{message}</div>}
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Panel className="p-6 md:p-8">
+              <h2 className="display-font text-2xl font-800 text-ink">Manual Course Assignment</h2>
+              <p className="mt-2 text-sm text-slatey">Use this for one-to-one assignment after reviewing a participant profile.</p>
+              <div className="mt-6 grid gap-4">
+                <SelectInput label="Learner" value={manual.email} onChange={(value) => setManual((prev) => ({ ...prev, email: value }))} options={[{ value: '', label: 'Select learner' }, ...learners.map((learner) => ({ value: learner.email, label: `${learner.name} (${learner.employeeId})` }))]} />
+                <SelectInput label="Course" value={manual.courseId} onChange={(value) => setManual((prev) => ({ ...prev, courseId: value }))} options={[{ value: '', label: 'Select course' }, ...courses.map((course) => ({ value: course.id, label: course.title }))]} />
+                <TextInput label="Due Date" value={manual.dueDate} onChange={(value) => setManual((prev) => ({ ...prev, dueDate: value }))} type="date" />
+              </div>
+              <div className="mt-6">
+                <Button onClick={addManual}>Assign Course</Button>
+              </div>
+            </Panel>
+
+            <Panel className="p-6 md:p-8">
+              <h2 className="display-font text-2xl font-800 text-ink">Profile-Based Assignment Rule</h2>
+              <p className="mt-2 text-sm text-slatey">Rules automatically assign matching learners and also apply to future HR-created employees.</p>
+              <div className="mt-6 grid gap-4">
+                <TextInput label="Rule Name" value={rule.name} onChange={(value) => setRule((prev) => ({ ...prev, name: value }))} placeholder="e.g. White-collar induction" />
+                <SelectInput label="Target Course" value={rule.courseId} onChange={(value) => setRule((prev) => ({ ...prev, courseId: value }))} options={[{ value: '', label: 'Select course' }, ...courses.map((course) => ({ value: course.id, label: course.title }))]} />
+                <TextInput label="Default Due Date" value={rule.dueDate} onChange={(value) => setRule((prev) => ({ ...prev, dueDate: value }))} type="date" />
+                <div>
+                  <div className="mb-2 text-sm font-semibold text-slate-700">Employee Type Match</div>
+                  <div className="flex flex-wrap gap-2">
+                    {EMPLOYEE_TYPES.map((type) => (
+                      <CheckboxPill key={type} checked={rule.employeeTypes.includes(type)} onChange={() => toggleRuleValue('employeeTypes', type)} label={type} />
+                    ))}
+                  </div>
+                </div>
+                <TextInput label="Designation Contains" value={rule.designationKeyword} onChange={(value) => setRule((prev) => ({ ...prev, designationKeyword: value }))} placeholder="e.g. engineer" />
+                <TextInput label="Department Contains" value={rule.departmentKeyword} onChange={(value) => setRule((prev) => ({ ...prev, departmentKeyword: value }))} placeholder="e.g. operations" />
+                <div>
+                  <div className="mb-2 text-sm font-semibold text-slate-700">Business Lines</div>
+                  <div className="flex flex-wrap gap-2">
+                    {BUSINESS_LINES.filter((line) => line !== 'Other').map((line) => (
+                      <CheckboxPill key={line} checked={rule.businessLines.includes(line)} onChange={() => toggleRuleValue('businessLines', line)} label={line} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Button tone="secondary" onClick={saveRule}>Save Rule</Button>
+              </div>
+            </Panel>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Panel className="overflow-hidden">
+              <div className="border-b border-slate-100 px-6 py-5">
+                <h2 className="display-font text-2xl font-800 text-ink">Active Assignments</h2>
+              </div>
+              {assignments.length === 0 ? (
+                <div className="p-6"><EmptyState title="No assignments yet" text="Create manual or rule-based assignments to start the learning flow." /></div>
+              ) : (
+                <div className="table-wrap overflow-x-auto">
+                  <table>
+                    <thead>
+                      <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                        <th className="px-5 py-4">Learner</th>
+                        <th className="px-5 py-4">Course</th>
+                        <th className="px-5 py-4">Source</th>
+                        <th className="px-5 py-4">Due</th>
+                        <th className="px-5 py-4">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {assignments.map((assignment) => (
+                        <tr key={assignment.id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-5 py-4 text-sm">
+                            <div className="font-semibold text-ink">{userOf(assignment.email)?.name || assignment.email}</div>
+                            <div className="mt-1 text-xs text-slate-500">{assignment.email}</div>
+                          </td>
+                          <td className="px-5 py-4 text-sm text-slate-700">{courseOf(assignment.courseId)?.title || 'Deleted course'}</td>
+                          <td className="px-5 py-4 text-sm text-slate-500">{assignment.source || 'Manual assignment'}</td>
+                          <td className="px-5 py-4 text-sm text-slate-500">{fmtDate(assignment.dueDate)}</td>
+                          <td className="px-5 py-4"><Button variant="soft" tone="danger" onClick={() => removeAssignment(assignment.id)}>Remove</Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <Panel className="overflow-hidden">
+              <div className="border-b border-slate-100 px-6 py-5">
+                <h2 className="display-font text-2xl font-800 text-ink">Assignment Rules</h2>
+              </div>
+              {assignmentRules.length === 0 ? (
+                <div className="p-6"><EmptyState title="No rules yet" text="Save at least one employee-profile rule to automate assignment." /></div>
+              ) : (
+                <div className="space-y-4 p-6">
+                  {assignmentRules.map((item) => (
+                    <div key={item.id} className="rounded-[22px] border border-slate-100 bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="display-font text-lg font-800 text-ink">{item.name}</div>
+                          <div className="mt-1 text-sm text-slatey">Course: {courseOf(item.courseId)?.title || 'Deleted course'}</div>
+                        </div>
+                        <Button variant="soft" tone="danger" onClick={() => removeRule(item.id)}>Delete</Button>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(item.employeeTypes || []).map((type) => <Tag key={type} tone="blue">{type}</Tag>)}
+                        {(item.businessLines || []).map((line) => <Tag key={line} tone="teal">{line}</Tag>)}
+                        {item.designationKeyword && <Tag tone="slate">Designation: {item.designationKeyword}</Tag>}
+                        {item.departmentKeyword && <Tag tone="slate">Department: {item.departmentKeyword}</Tag>}
+                        {item.dueDate && <Tag tone="amber">Due {fmtDate(item.dueDate)}</Tag>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
+        </div>
+      );
+    };
+
+    const QuizManagement = ({ courses, modules, quizzes, setQuizzes }) => {
+      const blankQuestion = () => ({ id: uid(), text: '', options: ['', '', '', ''], answer: 0 });
+      const blankQuiz = {
+        title: '',
+        scopeType: 'course',
+        scopeId: courses[0]?.id || '',
+        passMark: 80,
+        maxAttempts: 3,
+        questions: [blankQuestion()],
+      };
+      const [editing, setEditing] = useState(null);
+      const [form, setForm] = useState(blankQuiz);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        if (!editing) {
+          setForm((prev) => ({ ...prev, scopeId: prev.scopeType === 'course' ? (courses[0]?.id || '') : (modules[0]?.id || '') }));
+        }
+      }, [courses.length, modules.length]);
+
+      const openNew = () => {
+        setEditing({});
+        setForm({
+          title: '',
+          scopeType: 'course',
+          scopeId: courses[0]?.id || '',
+          passMark: 80,
+          maxAttempts: 3,
+          questions: [blankQuestion()],
+        });
+        setError('');
+      };
+
+      const openEdit = (quiz) => {
+        setEditing(quiz);
+        setForm({ ...quiz, questions: quiz.questions && quiz.questions.length ? quiz.questions : [blankQuestion()] });
+        setError('');
+      };
+
+      const updateQuestion = (index, field, value) => {
+        setForm((prev) => ({
+          ...prev,
+          questions: prev.questions.map((question, idx) => idx === index ? { ...question, [field]: value } : question),
+        }));
+      };
+
+      const updateOption = (questionIndex, optionIndex, value) => {
+        setForm((prev) => ({
+          ...prev,
+          questions: prev.questions.map((question, idx) => idx === questionIndex ? {
+            ...question,
+            options: question.options.map((option, optIdx) => optIdx === optionIndex ? value : option),
+          } : question),
+        }));
+      };
+
+      const save = () => {
+        if (!clean(form.title, 140) || !form.scopeId) {
+          setError('Enter a quiz title and choose the related course or module.');
+          return;
+        }
+        if (form.questions.some((question) => !clean(question.text, 300) || question.options.some((option) => !clean(option, 180)))) {
+          setError('Complete every question and every option.');
+          return;
+        }
+        const payload = {
+          id: editing.id || uid(),
+          title: clean(form.title, 140),
+          scopeType: form.scopeType,
+          scopeId: form.scopeId,
+          passMark: Number(form.passMark) || 80,
+          maxAttempts: Number(form.maxAttempts) || 3,
+          questions: form.questions.map((question) => ({
+            ...question,
+            text: clean(question.text, 300),
+            options: question.options.map((option) => clean(option, 180)),
+          })),
+          createdAt: editing.createdAt || Date.now(),
+        };
+        const next = editing.id ? quizzes.map((quiz) => quiz.id === editing.id ? payload : quiz) : [...quizzes, payload];
+        setQuizzes(next);
+        setEditing(null);
+      };
+
+      const remove = (id) => {
+        if (!window.confirm('Delete this quiz?')) return;
+        setQuizzes(quizzes.filter((quiz) => quiz.id !== id));
+      };
+
+      const scopeLabel = (quiz) => {
+        if (quiz.scopeType === 'course') return courses.find((course) => course.id === quiz.scopeId)?.title || 'Deleted course';
+        return modules.find((module) => module.id === quiz.scopeId)?.title || 'Deleted module';
+      };
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Quiz Management"
+            subtitle="Create quizzes after either a full course or an individual module, with pass marks and limited attempts."
+            action={<Button onClick={openNew}>Create Quiz</Button>}
+          />
+          <Panel className="overflow-hidden">
+            {quizzes.length === 0 ? (
+              <div className="p-6"><EmptyState title="No quizzes created" text="Add a course quiz or module quiz." /></div>
+            ) : (
+              <div className="table-wrap overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                      <th className="px-5 py-4">Quiz</th>
+                      <th className="px-5 py-4">Scope</th>
+                      <th className="px-5 py-4">Questions</th>
+                      <th className="px-5 py-4">Pass Mark</th>
+                      <th className="px-5 py-4">Attempts</th>
+                      <th className="px-5 py-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quizzes.map((quiz) => (
+                      <tr key={quiz.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-5 py-4 text-sm font-semibold text-ink">{quiz.title}</td>
+                        <td className="px-5 py-4 text-sm text-slate-600">
+                          <Tag tone={quiz.scopeType === 'course' ? 'blue' : 'teal'}>{quiz.scopeType === 'course' ? 'Course Quiz' : 'Module Quiz'}</Tag>
+                          <div className="mt-2 text-xs text-slate-500">{scopeLabel(quiz)}</div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-slate-600">{quiz.questions.length}</td>
+                        <td className="px-5 py-4"><Tag tone="amber">{quiz.passMark}%</Tag></td>
+                        <td className="px-5 py-4 text-sm text-slate-600">{quiz.maxAttempts}</td>
+                        <td className="px-5 py-4">
+                          <div className="flex gap-2">
+                            <Button variant="soft" onClick={() => openEdit(quiz)}>Edit</Button>
+                            <Button variant="soft" tone="danger" onClick={() => remove(quiz.id)}>Delete</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          {editing && (
+            <Modal
+              title={editing.id ? 'Edit Quiz' : 'Create Quiz'}
+              subtitle="Design the assessment that appears after a course or module."
+              onClose={() => setEditing(null)}
+              actions={
+                <>
+                  <Button variant="soft" tone="slate" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button onClick={save}>Save Quiz</Button>
+                </>
+              }
+              wide
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextInput label="Quiz Title" value={form.title} onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} />
+                <SelectInput
+                  label="Quiz Scope"
+                  value={form.scopeType}
+                  onChange={(value) => setForm((prev) => ({
+                    ...prev,
+                    scopeType: value,
+                    scopeId: value === 'course' ? (courses[0]?.id || '') : (modules[0]?.id || ''),
+                  }))}
+                  options={[
+                    { value: 'course', label: 'After a Course' },
+                    { value: 'module', label: 'After a Module' },
+                  ]}
+                />
+                <SelectInput
+                  label={form.scopeType === 'course' ? 'Course' : 'Module'}
+                  value={form.scopeId}
+                  onChange={(value) => setForm((prev) => ({ ...prev, scopeId: value }))}
+                  options={(form.scopeType === 'course' ? courses : modules).map((item) => ({ value: item.id, label: item.title }))}
+                />
+                <TextInput label="Pass Mark (%)" value={String(form.passMark)} onChange={(value) => setForm((prev) => ({ ...prev, passMark: value }))} type="number" />
+                <TextInput label="Max Attempts" value={String(form.maxAttempts)} onChange={(value) => setForm((prev) => ({ ...prev, maxAttempts: value }))} type="number" />
+              </div>
+
+              <Divider />
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="display-font text-xl font-800 text-ink">Questions</h3>
+                  <Button variant="soft" tone="secondary" onClick={() => setForm((prev) => ({ ...prev, questions: [...prev.questions, blankQuestion()] }))}>Add Question</Button>
+                </div>
+                {form.questions.map((question, index) => (
+                  <div key={question.id} className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <Tag tone="blue">Question {index + 1}</Tag>
+                      {form.questions.length > 1 && <Button variant="soft" tone="danger" onClick={() => setForm((prev) => ({ ...prev, questions: prev.questions.filter((_, idx) => idx !== index) }))}>Remove</Button>}
+                    </div>
+                    <TextInput label="Question Text" value={question.text} onChange={(value) => updateQuestion(index, 'text', value)} />
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {question.options.map((option, optionIndex) => (
+                        <label key={optionIndex} className={`rounded-2xl border px-4 py-3 text-sm ${question.answer === optionIndex ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                          <div className="mb-2 flex items-center gap-2 font-semibold text-slate-700">
+                            <input type="radio" checked={question.answer === optionIndex} onChange={() => updateQuestion(index, 'answer', optionIndex)} />
+                            Correct Answer
+                          </div>
+                          <input
+                            value={option}
+                            onChange={(e) => updateOption(index, optionIndex, e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-blue-400"
+                            placeholder={`Option ${optionIndex + 1}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+            </Modal>
+          )}
+        </div>
+      );
+    };
+
+    const AdminDashboard = ({ users, courses, assignments, modules, quizzes, progress, certificates }) => {
+      const learners = users.filter((user) => user.role === 'learner');
+      const admins = users.filter((user) => ['superadmin', 'admin'].includes(user.role));
+      const hrUsers = users.filter((user) => user.role === 'hr');
+      const essential = courses.filter((course) => course.type === 'Essential').length;
+      const desirable = courses.filter((course) => course.type === 'Desirable').length;
+      const moduleCount = modules.length;
+      const completionCount = certificates.length;
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Admin Dashboard"
+            subtitle="Monitor accounts, assignments, learner progress, quizzes, and completion status."
+          />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Learners" value={learners.length} hint="Real accounts only" />
+            <StatCard label="Admin + Super Admin" value={admins.length} tone="slate" />
+            <StatCard label="HR Users" value={hrUsers.length} tone="teal" />
+            <StatCard label="Active Assignments" value={assignments.length} tone="amber" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Courses" value={courses.length} />
+            <StatCard label="Essential Courses" value={essential} tone="amber" />
+            <StatCard label="Desirable Courses" value={desirable} tone="teal" />
+            <StatCard label="Modules / Assets" value={moduleCount} tone="slate" />
+          </div>
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <Panel className="overflow-hidden">
+              <div className="border-b border-slate-100 px-6 py-5">
+                <h2 className="display-font text-2xl font-800 text-ink">Learner Progress Snapshot</h2>
+              </div>
+              {learners.length === 0 ? (
+                <div className="p-6"><EmptyState title="No learners created" text="Create learner accounts from the HR form to populate this dashboard." /></div>
+              ) : (
+                <div className="table-wrap overflow-x-auto">
+                  <table>
+                    <thead>
+                      <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                        <th className="px-5 py-4">Learner</th>
+                        <th className="px-5 py-4">Assigned</th>
+                        <th className="px-5 py-4">Completed</th>
+                        <th className="px-5 py-4">Pending</th>
+                        <th className="px-5 py-4">Quiz Performance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {learners.map((learner) => {
+                        const learnerAssignments = assignments.filter((item) => item.email === learner.email);
+                        const learnerCertificates = certificates.filter((item) => item.email === learner.email);
+                        const learnerQuizAttempts = progress.quizAttemptsByUser[learner.email] || [];
+                        const passedQuizCount = learnerQuizAttempts.filter((attempt) => attempt.passed).length;
+                        return (
+                          <tr key={learner.id} className="border-t border-slate-100 hover:bg-slate-50">
+                            <td className="px-5 py-4">
+                              <div className="font-semibold text-ink">{learner.name}</div>
+                              <div className="mt-1 text-xs text-slate-500">{learner.email}</div>
+                            </td>
+                            <td className="px-5 py-4 text-sm text-slate-600">{learnerAssignments.length}</td>
+                            <td className="px-5 py-4"><Tag tone="green">{learnerCertificates.length}</Tag></td>
+                            <td className="px-5 py-4 text-sm text-slate-600">{Math.max(learnerAssignments.length - learnerCertificates.length, 0)}</td>
+                            <td className="px-5 py-4 text-sm text-slate-600">{passedQuizCount} passed attempts</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <div className="space-y-6">
+              <Panel className="p-6">
+                <h2 className="display-font text-2xl font-800 text-ink">Recognition Status</h2>
+                <p className="mt-2 text-sm text-slatey">Badges and certificates are generated automatically after successful completion.</p>
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-[24px] bg-blue-50 p-5">
+                    <div className="text-sm font-semibold text-brand">Certificates Issued</div>
+                    <div className="display-font mt-2 text-4xl font-800 text-brand">{completionCount}</div>
+                  </div>
+                  <div className="rounded-[24px] bg-teal-50 p-5">
+                    <div className="text-sm font-semibold text-tealish">Quizzes Published</div>
+                    <div className="display-font mt-2 text-4xl font-800 text-tealish">{quizzes.length}</div>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel className="p-6">
+                <h2 className="display-font text-2xl font-800 text-ink">Prototype Flow</h2>
+                <div className="mt-5 space-y-4">
+                  {[
+                    'Create an employee account from the login page with a company email.',
+                    'Admin assigns courses manually or through profile rules.',
+                    'Learner logs in, completes modules, and takes quizzes.',
+                    'Badge and certificate are issued automatically on completion.',
+                  ].map((step, index) => (
+                    <div key={step} className="flex gap-4">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">{index + 1}</div>
+                      <p className="pt-1 text-sm leading-6 text-slate-600">{step}</p>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const Reports = ({ users, courses, assignments, modules, quizzes, quizAttempts, progress, certificates }) => {
+      const learners = users.filter((user) => user.role === 'learner');
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Reports"
+            subtitle="A structured progress and performance view with assignments, completions, progress bars, and quiz performance."
+          />
+          {learners.length === 0 ? (
+            <EmptyState title="No report data yet" text="Create learners and assign them courses to populate reports." />
+          ) : (
+            <div className="space-y-4">
+              {learners.map((learner) => {
+                const learnerAssignments = assignments.filter((item) => item.email === learner.email);
+                const learnerCertificates = certificates.filter((item) => item.email === learner.email);
+                const learnerAttempts = quizAttempts.filter((item) => item.email === learner.email);
+                return (
+                  <Panel key={learner.id} className="p-6">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <h2 className="display-font text-2xl font-800 text-ink">{learner.name}</h2>
+                        <p className="mt-1 text-sm text-slatey">{learner.designation} • {learner.department} • {businessLineLabel(learner)}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Tag tone="blue">{learnerAssignments.length} Assigned</Tag>
+                        <Tag tone="green">{learnerCertificates.length} Completed</Tag>
+                        <Tag tone="teal">{learnerAttempts.filter((item) => item.passed).length} Passed Quizzes</Tag>
+                      </div>
+                    </div>
+                    <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                      {learnerAssignments.length === 0 ? (
+                        <div className="rounded-[22px] border border-slate-100 bg-slate-50 p-5 text-sm text-slatey">No assigned courses yet.</div>
+                      ) : learnerAssignments.map((assignment) => {
+                        const course = courses.find((item) => item.id === assignment.courseId);
+                        if (!course) return null;
+                        const status = courseStatusForUser({ user: learner, course, modules, assignments, progress, quizzes, quizAttempts });
+                        const relatedAttempts = quizAttempts.filter((item) => item.email === learner.email && (
+                          (item.scopeType === 'course' && item.scopeId === course.id) ||
+                          (item.scopeType === 'module' && status.visibleModules.some((module) => module.id === item.scopeId))
+                        ));
+                        const bestScore = relatedAttempts.length ? Math.max(...relatedAttempts.map((item) => item.score)) : null;
+                        return (
+                          <div key={assignment.id} className="rounded-[22px] border border-slate-100 bg-slate-50 p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="display-font text-lg font-800 text-ink">{course.title}</div>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                                  <Tag tone="blue">{course.trainingType}</Tag>
+                                  <Tag tone="slate">{status.pendingLabel}</Tag>
+                                </div>
+                              </div>
+                              <div className="min-w-[120px] text-right">
+                                <div className="display-font text-2xl font-800 text-ink">{status.progressPct}%</div>
+                                <div className="text-xs text-slate-500">Progress</div>
+                              </div>
+                            </div>
+                            <div className="mt-4">
+                              <ProgressBar value={status.progressPct} />
+                            </div>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-3 text-sm text-slate-600">
+                              <div>Modules: <span className="font-semibold text-ink">{status.completedModules}/{status.moduleCount}</span></div>
+                              <div>Quiz Best: <span className="font-semibold text-ink">{bestScore !== null ? `${bestScore}%` : '—'}</span></div>
+                              <div>Due: <span className="font-semibold text-ink">{fmtDate(assignment.dueDate)}</span></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Panel>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const QuizPlayer = ({ user, quiz, quizAttempts, setQuizAttempts, onClose }) => {
+      const [answers, setAnswers] = useState({});
+      const [submitted, setSubmitted] = useState(false);
+      const [score, setScore] = useState(0);
+      const attempts = quizAttempts.filter((item) => item.email === user.email && item.quizId === quiz.id);
+      const alreadyPassed = attempts.some((item) => item.passed);
+      const attemptsLeft = quiz.maxAttempts - attempts.length;
+
+      const submit = () => {
+        if (Object.keys(answers).length !== quiz.questions.length) return;
+        let correct = 0;
+        quiz.questions.forEach((question, index) => {
+          if (answers[index] === question.answer) correct += 1;
+        });
+        const result = Math.round((correct / quiz.questions.length) * 100);
+        const passed = result >= quiz.passMark;
+        setScore(result);
+        setSubmitted(true);
+        setQuizAttempts([
+          ...quizAttempts,
+          {
+            id: uid(),
+            email: user.email,
+            quizId: quiz.id,
+            scopeType: quiz.scopeType,
+            scopeId: quiz.scopeId,
+            score: result,
+            passed,
+            takenAt: Date.now(),
+          },
+        ]);
+      };
+
+      return (
+        <Modal
+          title={quiz.title}
+          subtitle={`${quiz.questions.length} questions • Pass mark ${quiz.passMark}% • Attempts left ${Math.max(attemptsLeft, 0)}`}
+          onClose={onClose}
+          actions={
+            submitted
+              ? <Button onClick={onClose}>{score >= quiz.passMark ? 'Return to Course' : 'Close'}</Button>
+              : <Button onClick={submit} disabled={alreadyPassed || attemptsLeft <= 0}>Submit Quiz</Button>
+          }
+          wide
+        >
+          {alreadyPassed ? (
+            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-6 text-sm text-emerald-800">
+              You already passed this quiz. No further attempt is required.
+            </div>
+          ) : attemptsLeft <= 0 && !submitted ? (
+            <div className="rounded-[24px] border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+              Maximum attempts reached. Contact admin if you need a reset.
+            </div>
+          ) : submitted ? (
+            <div className="space-y-4">
+              <div className={`rounded-[24px] p-6 text-center ${score >= quiz.passMark ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                <div className="display-font text-5xl font-800">{score}%</div>
+                <div className="mt-2 text-base font-semibold">{score >= quiz.passMark ? 'Passed' : 'Not Yet Passed'}</div>
+              </div>
+              {quiz.questions.map((question, index) => (
+                <div key={question.id} className={`rounded-[24px] border p-5 ${answers[index] === question.answer ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+                  <div className="font-semibold text-ink">{question.text}</div>
+                  <div className="mt-3 text-sm">Your answer: <span className="font-semibold">{question.options[answers[index]] || '—'}</span></div>
+                  {answers[index] !== question.answer && <div className="mt-2 text-sm">Correct answer: <span className="font-semibold">{question.options[question.answer]}</span></div>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {quiz.questions.map((question, index) => (
+                <div key={question.id} className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                  <div className="display-font text-lg font-800 text-ink">Q{index + 1}. {question.text}</div>
+                  <div className="mt-4 grid gap-3">
+                    {question.options.map((option, optionIndex) => (
+                      <label key={optionIndex} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${answers[index] === optionIndex ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+                        <input type="radio" checked={answers[index] === optionIndex} onChange={() => setAnswers((prev) => ({ ...prev, [index]: optionIndex }))} />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
+      );
+    };
+
+    const CourseDetailContent = ({ user, course, modules, quizzes, assignments, progress, setProgress, quizAttempts, setQuizAttempts }) => {
+      const visibleModules = getVisibleModulesForUser(modules, course.id, user);
+      const [openQuiz, setOpenQuiz] = useState(null);
+      const moduleQuizFor = (moduleId) => quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === moduleId);
+      const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
+      const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
+
+      const completeModule = (module) => {
+        const exists = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+        if (exists) return;
+        setProgress([
+          ...progress,
+          {
+            id: uid(),
+            email: user.email,
+            courseId: course.id,
+            moduleId: module.id,
+            completedAt: Date.now(),
+          },
+        ]);
+      };
+
+      return (
+        <>
+          <div className="space-y-6">
+              <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                      <Tag tone="blue">{course.trainingType}</Tag>
+                      <Tag tone="slate">{course.focusArea}</Tag>
+                    </div>
+                    <p className="mt-4 text-sm leading-7 text-slatey">{course.description || 'No course description added yet.'}</p>
+                  </div>
+                  <div className="min-w-[180px] rounded-[24px] bg-white p-5 shadow-soft">
+                    <div className="text-sm font-semibold text-slate-500">Completion</div>
+                    <div className="display-font mt-2 text-4xl font-800 text-ink">{status.progressPct}%</div>
+                    <div className="mt-3"><ProgressBar value={status.progressPct} /></div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="display-font text-2xl font-800 text-ink">Modules</h3>
+                <div className="mt-4 space-y-4">
+                  {visibleModules.length === 0 ? (
+                    <EmptyState title="No visible modules" text="No module has been targeted to this learner profile yet." />
+                  ) : visibleModules.map((module) => {
+                    const done = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+                    const moduleQuiz = moduleQuizFor(module.id);
+                    const moduleQuizPassed = moduleQuiz ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id) : true;
+                    return (
+                      <div key={module.id} className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-soft">
+                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                          <div className="max-w-4xl">
+                            <div className="mb-3 flex flex-wrap gap-2">
+                              <Tag tone="blue">Module {module.order}</Tag>
+                              {done ? <Tag tone="green">Completed</Tag> : <Tag tone="slate">Pending</Tag>}
+                              {moduleQuiz && <Tag tone={moduleQuizPassed ? 'green' : 'amber'}>{moduleQuizPassed ? 'Quiz Passed' : 'Quiz Pending'}</Tag>}
+                            </div>
+                            <h4 className="display-font text-xl font-800 text-ink">{module.title}</h4>
+                            <p className="mt-2 text-sm leading-6 text-slatey">{module.description || 'No description provided.'}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            {!done && <Button variant="soft" onClick={() => completeModule(module)}>Mark Complete</Button>}
+                            {moduleQuiz && <Button tone="secondary" onClick={() => setOpenQuiz(moduleQuiz)}>{moduleQuizPassed ? 'View Quiz' : 'Take Quiz'}</Button>}
+                          </div>
+                        </div>
+
+                        {module.videoUrl && (
+                          <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200">
+                            <div className="aspect-video w-full bg-slate-950">
+                              {isDirectVideoFile(module.videoUrl) ? (
+                                <video src={module.videoUrl} className="h-full w-full" controls preload="metadata" />
+                              ) : (
+                                <iframe src={getEmbeddableVideoUrl(module.videoUrl)} title={module.title} className="h-full w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                              )}
+                            </div>
+                            {!isDirectVideoFile(module.videoUrl) && getEmbeddableVideoUrl(module.videoUrl) === module.videoUrl && !module.videoUrl.includes('/embed/') && (
+                              <div className="border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
+                                If this video does not preview, use an embeddable video link or direct video file.
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                          <div className="rounded-[22px] bg-slate-50 p-4">
+                            <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Transcript</div>
+                            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">{module.transcript || 'No transcript available.'}</div>
+                          </div>
+                          <div className="rounded-[22px] bg-blue-50 p-4">
+                            <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-blue-400">Notes / Guidance</div>
+                            <div className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{module.notes || 'No notes available.'}</div>
+                          </div>
+                        </div>
+
+                        {(module.documents || []).length > 0 && (
+                          <div className="mt-5">
+                            <div className="mb-3 text-sm font-semibold text-slate-700">Documents</div>
+                            <div className="flex flex-wrap gap-3">
+                              {module.documents.map((file) => (
+                                <a key={file.id} href={file.dataUrl} download={file.name} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                                  {file.name}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(module.images || []).length > 0 && (
+                          <div className="mt-5">
+                            <div className="mb-3 text-sm font-semibold text-slate-700">Pictures / Images</div>
+                            <div className="overflow-x-auto">
+                              <div className="flex gap-4 pb-2">
+                              {module.images.map((file) => (
+                                <div key={file.id} className="min-w-[260px] overflow-hidden rounded-[22px] border border-slate-100 bg-slate-50">
+                                  <img src={file.dataUrl} alt={file.label || file.name} className="h-40 w-full object-cover" />
+                                  <div className="px-4 py-3">
+                                    <div className="text-sm font-semibold text-slate-700">{file.label || file.name}</div>
+                                    <div className="mt-1 text-xs text-slate-400">{file.name}</div>
+                                  </div>
+                                </div>
+                              ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h3 className="display-font text-2xl font-800 text-ink">Course Quiz</h3>
+                    <p className="mt-2 text-sm text-slatey">Complete the course quiz to finalize training clearance where applicable.</p>
+                  </div>
+                  {courseQuiz ? (
+                    <Button tone="secondary" onClick={() => setOpenQuiz(courseQuiz)}>
+                      {status.courseQuizPassed ? 'View Course Quiz' : 'Take Course Quiz'}
+                    </Button>
+                  ) : <Tag tone="green">No course quiz required</Tag>}
+                </div>
+              </div>
+            </div>
+          {openQuiz && <QuizPlayer user={user} quiz={openQuiz} quizAttempts={quizAttempts} setQuizAttempts={setQuizAttempts} onClose={() => setOpenQuiz(null)} />}
+        </>
+      );
+    };
+
+    const CourseDetailModal = ({ user, course, modules, quizzes, assignments, progress, setProgress, quizAttempts, setQuizAttempts, onClose }) => (
+      <Modal
+        title={course.title}
+        subtitle={`${course.type} • ${course.trainingType} • ${course.focusArea}`}
+        onClose={onClose}
+        wide
+      >
+        <CourseDetailContent
+          user={user}
+          course={course}
+          modules={modules}
+          quizzes={quizzes}
+          assignments={assignments}
+          progress={progress}
+          setProgress={setProgress}
+          quizAttempts={quizAttempts}
+          setQuizAttempts={setQuizAttempts}
+        />
+      </Modal>
+    );
+
+    const CourseDetailPage = ({ user, course, modules, quizzes, assignments, progress, setProgress, quizAttempts, setQuizAttempts }) => (
+      <div className="page-shell min-h-screen">
+        <div className="mx-auto max-w-[1320px] px-4 py-8 md:px-6">
+          <SectionTitle
+            title={course.title}
+            subtitle={`${course.type} • ${course.trainingType} • ${course.focusArea}`}
+            action={<Button variant="soft" tone="slate" onClick={() => window.close()}>Close Tab</Button>}
+          />
+          <CourseDetailContent
+            user={user}
+            course={course}
+            modules={modules}
+            quizzes={quizzes}
+            assignments={assignments}
+            progress={progress}
+            setProgress={setProgress}
+            quizAttempts={quizAttempts}
+            setQuizAttempts={setQuizAttempts}
+          />
+        </div>
+      </div>
+    );
+
+    const LearnerDashboard = ({ user, courses, assignments, modules, quizzes, progress, quizAttempts, certificates, onOpenCourse }) => {
+      const myAssignments = assignments.filter((item) => item.email === user.email);
+      const statuses = myAssignments.map((assignment) => {
+        const course = courses.find((item) => item.id === assignment.courseId);
+        if (!course) return null;
+        return { assignment, course, status: courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts }) };
+      }).filter(Boolean);
+      const completed = statuses.filter((item) => item.status.completed).length;
+      const essential = statuses.filter((item) => item.course.type === 'Essential');
+      const desirable = statuses.filter((item) => item.course.type === 'Desirable');
+      const progressPct = statuses.length ? Math.round(statuses.reduce((sum, item) => sum + item.status.progressPct, 0) / statuses.length) : 0;
+      const bestQuizScore = quizAttempts.filter((item) => item.email === user.email).length
+        ? Math.max(...quizAttempts.filter((item) => item.email === user.email).map((item) => item.score))
+        : null;
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title={`Welcome, ${user.name}`}
+            subtitle={`${user.designation} • ${user.department} • ${businessLineLabel(user)}`}
+          />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Assigned Learning" value={statuses.length} />
+            <StatCard label="Completed Courses" value={completed} tone="teal" />
+            <StatCard label="Overall Progress" value={`${progressPct}%`} tone="amber" />
+            <StatCard label="Best Quiz Score" value={bestQuizScore !== null ? `${bestQuizScore}%` : '—'} tone="slate" />
+          </div>
+          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <Panel className="p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="display-font text-2xl font-800 text-ink">Assigned Learning</h2>
+                  <p className="mt-2 text-sm text-slatey">Only the courses assigned to this learner appear here.</p>
+                </div>
+                <Tag tone="blue">{statuses.length} Courses</Tag>
+              </div>
+              <div className="mt-5 space-y-4">
+                {statuses.length === 0 ? (
+                  <EmptyState title="Nothing assigned yet" text="Your HR and admin teams have not assigned any courses yet." />
+                ) : statuses.map(({ assignment, course, status }) => (
+                  <div key={assignment.id} className="rounded-[24px] border border-slate-100 bg-slate-50 p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                          <Tag tone="blue">{course.trainingType}</Tag>
+                          <Tag tone={status.completed ? 'green' : 'slate'}>{status.pendingLabel}</Tag>
+                        </div>
+                        <h3 className="display-font text-xl font-800 text-ink">{course.title}</h3>
+                        <p className="mt-2 text-sm leading-6 text-slatey">{course.description || 'No description available.'}</p>
+                      </div>
+                      <div className="min-w-[140px]">
+                        <div className="text-right text-sm text-slate-500">Due {fmtDate(assignment.dueDate)}</div>
+                        <div className="mt-3"><ProgressBar value={status.progressPct} /></div>
+                        <div className="mt-2 text-right text-xs text-slate-500">{status.completedModules}/{status.moduleCount} modules</div>
+                      </div>
+                    </div>
+                    <div className="mt-5">
+                      <Button onClick={() => onOpenCourse(course.id)}>Open Course</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            <div className="space-y-6">
+              <Panel className="p-6">
+                <h2 className="display-font text-2xl font-800 text-ink">Learning Mix</h2>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-[22px] bg-amber-50 p-5">
+                    <div className="text-sm font-semibold text-amberish">Essential</div>
+                    <div className="display-font mt-2 text-4xl font-800 text-amberish">{essential.length}</div>
+                  </div>
+                  <div className="rounded-[22px] bg-teal-50 p-5">
+                    <div className="text-sm font-semibold text-tealish">Desirable</div>
+                    <div className="display-font mt-2 text-4xl font-800 text-tealish">{desirable.length}</div>
+                  </div>
+                </div>
+              </Panel>
+              <Panel className="p-6">
+                <h2 className="display-font text-2xl font-800 text-ink">Recognition</h2>
+                <p className="mt-2 text-sm text-slatey">Badges and certificates unlock automatically after course completion.</p>
+                <div className="mt-5 grid gap-3">
+                  {certificates.filter((item) => item.email === user.email).length === 0 ? (
+                    <div className="rounded-[22px] bg-slate-50 p-5 text-sm text-slatey">Complete your assigned learning to unlock badges and certificates.</div>
+                  ) : certificates.filter((item) => item.email === user.email).map((item) => (
+                    <div key={item.id} className="rounded-[22px] bg-emerald-50 p-5">
+                      <div className="display-font text-lg font-800 text-emerald-800">{item.badgeTitle}</div>
+                      <div className="mt-1 text-sm text-emerald-700">Certificate issued on {fmtDate(item.issuedAt)}</div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const LearnerCourses = ({ user, courses, assignments, modules, quizzes, progress, quizAttempts, onOpenCourse }) => {
+      const myAssignments = assignments.filter((item) => item.email === user.email);
+      const cards = myAssignments.map((assignment) => {
+        const course = courses.find((item) => item.id === assignment.courseId);
+        if (!course) return null;
+        return { assignment, course, status: courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts }) };
+      }).filter(Boolean);
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle title="My Courses" subtitle="Assigned learning, grouped by requirement type, with module completion and quiz visibility." />
+          {cards.length === 0 ? (
+            <EmptyState title="No assigned courses" text="Your assigned learning will appear here once admin creates an assignment." />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {cards.map(({ assignment, course, status }) => (
+                <Panel key={assignment.id} className="p-6">
+                  <div className="flex flex-wrap gap-2">
+                    <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                    <Tag tone="blue">{course.trainingType}</Tag>
+                    <Tag tone="slate">{course.focusArea}</Tag>
+                  </div>
+                  <h3 className="display-font mt-4 text-2xl font-800 text-ink">{course.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-slatey">{course.description || 'No description available.'}</p>
+                  <div className="mt-5">
+                    <ProgressBar value={status.progressPct} />
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <span>{status.completedModules}/{status.moduleCount} modules completed</span>
+                      <span>{status.progressPct}%</span>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Tag tone={status.completed ? 'green' : 'amber'}>{status.pendingLabel}</Tag>
+                    <Tag tone="slate">Due {fmtDate(assignment.dueDate)}</Tag>
+                  </div>
+                  <div className="mt-6">
+                    <Button onClick={() => onOpenCourse(course.id)}>Open Learning</Button>
+                  </div>
+                </Panel>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const LearnerProgress = ({ user, courses, assignments, modules, quizzes, progress, quizAttempts, certificates }) => {
+      const myAssignments = assignments.filter((item) => item.email === user.email);
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle title="Progress / Grades / Clearance" subtitle="Track module completion, progress percentage, quiz results, and final course clearance." />
+          {myAssignments.length === 0 ? (
+            <EmptyState title="No progress to show" text="Assigned courses will populate your progress and grades view." />
+          ) : (
+            <div className="space-y-4">
+              {myAssignments.map((assignment) => {
+                const course = courses.find((item) => item.id === assignment.courseId);
+                if (!course) return null;
+                const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
+                const relatedAttempts = quizAttempts.filter((item) => item.email === user.email && (
+                  (item.scopeType === 'course' && item.scopeId === course.id) ||
+                  (item.scopeType === 'module' && status.visibleModules.some((module) => module.id === item.scopeId))
+                ));
+                const bestScore = relatedAttempts.length ? Math.max(...relatedAttempts.map((item) => item.score)) : null;
+                const certificate = certificates.find((item) => item.email === user.email && item.courseId === course.id);
+                return (
+                  <Panel key={assignment.id} className="p-6">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                          <Tag tone="blue">{course.trainingType}</Tag>
+                          <Tag tone={status.completed ? 'green' : 'slate'}>{status.pendingLabel}</Tag>
+                        </div>
+                        <h3 className="display-font text-2xl font-800 text-ink">{course.title}</h3>
+                        <p className="mt-2 text-sm text-slatey">Focus: {course.focusArea}</p>
+                      </div>
+                      <div className="rounded-[22px] bg-slate-50 p-5 text-right">
+                        <div className="display-font text-4xl font-800 text-ink">{status.progressPct}%</div>
+                        <div className="mt-1 text-xs text-slate-500">Completion Progress</div>
+                      </div>
+                    </div>
+                    <div className="mt-5">
+                      <ProgressBar value={status.progressPct} />
+                    </div>
+                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-[20px] bg-slate-50 p-4">
+                        <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Modules</div>
+                        <div className="mt-2 text-lg font-semibold text-ink">{status.completedModules}/{status.moduleCount}</div>
+                      </div>
+                      <div className="rounded-[20px] bg-slate-50 p-4">
+                        <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Quiz Best</div>
+                        <div className="mt-2 text-lg font-semibold text-ink">{bestScore !== null ? `${bestScore}%` : '—'}</div>
+                      </div>
+                      <div className="rounded-[20px] bg-slate-50 p-4">
+                        <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Clearance</div>
+                        <div className="mt-2 text-lg font-semibold text-ink">{status.completed ? 'Cleared' : 'Pending'}</div>
+                      </div>
+                      <div className="rounded-[20px] bg-slate-50 p-4">
+                        <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Certificate</div>
+                        <div className="mt-2 text-lg font-semibold text-ink">{certificate ? 'Issued' : 'Not yet'}</div>
+                      </div>
+                    </div>
+                  </Panel>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const RecognitionHub = ({ viewer, courses, certificates }) => {
+      const visibleCertificates = ['superadmin', 'admin', 'hr'].includes(viewer.role)
+        ? certificates
+        : certificates.filter((item) => item.email === viewer.email);
+
+      return (
+        <div className="space-y-6">
+          <SectionTitle
+            title="Certificates & Badges"
+            subtitle="Recognition is automatically awarded after successful completion. Certificate cards also show the simulated email delivery status."
+          />
+          {visibleCertificates.length === 0 ? (
+            <EmptyState title="No certificates issued yet" text="Complete training to unlock badges and generate downloadable certificates." />
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {visibleCertificates.map((certificate) => {
+                const learnerName = certificate.learnerName;
+                const course = courses.find((item) => item.id === certificate.courseId);
+                return (
+                  <Panel key={certificate.id} className="certificate-bg overflow-hidden">
+                    <div className="h-2 bg-gradient-to-r from-brand via-tealish to-amberish" />
+                    <div className="p-6">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="flex flex-wrap gap-2">
+                            <Tag tone="green">Badge Awarded</Tag>
+                            <Tag tone="blue">Certificate Ready</Tag>
+                          </div>
+                          <h3 className="display-font mt-4 text-2xl font-800 text-ink">{certificate.badgeTitle}</h3>
+                          <p className="mt-2 text-sm text-slatey">{learnerName} successfully completed {course?.title || 'this course'}.</p>
+                        </div>
+                        <div className="rounded-[22px] bg-white p-4 shadow-soft">
+                          <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Issued</div>
+                          <div className="mt-2 text-sm font-semibold text-ink">{fmtDate(certificate.issuedAt)}</div>
+                        </div>
+                      </div>
+                      <div className="mt-6 grid gap-4 md:grid-cols-2">
+                        <div className="rounded-[22px] bg-white p-5 shadow-soft">
+                          <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Certificate Delivery</div>
+                          <div className="mt-2 text-sm font-semibold text-ink">{certificate.emailStatus}</div>
+                          <div className="mt-2 text-sm text-slatey">Sent to {certificate.email}</div>
+                        </div>
+                        <div className="rounded-[22px] bg-white p-5 shadow-soft">
+                          <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Recognition Note</div>
+                          <div className="mt-2 text-sm text-slatey">This learner has completed the orientation or training course and earned the associated LMS badge.</div>
+                        </div>
+                      </div>
+                      <div className="mt-6 flex flex-wrap gap-3">
+                        <Button onClick={() => createPdfCertificate({ learner: { name: certificate.learnerName, employeeId: certificate.employeeId, email: certificate.email }, course: course || { title: certificate.courseTitle }, certificate })}>
+                          Download PDF Certificate
+                        </Button>
+                        <Tag tone="teal">{certificate.courseType}</Tag>
+                      </div>
+                    </div>
+                  </Panel>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const ProfilePage = ({ user }) => (
+      <div className="space-y-6">
+        <SectionTitle title="Profile" subtitle="Your employee profile and LMS access details." />
+        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <Panel className="p-8 text-center">
+            <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-[28px] bg-gradient-to-br from-brand to-tealish text-3xl font-bold text-white shadow-soft">
+              {(user.name || '?')[0].toUpperCase()}
+            </div>
+            <h2 className="display-font mt-5 text-3xl font-800 text-ink">{user.name}</h2>
+            <p className="mt-2 text-sm text-slatey">{user.email}</p>
+            <div className="mt-4"><Tag tone={roleTone(user.role)}>{roleLabel(user.role)}</Tag></div>
+          </Panel>
+          <Panel className="p-8">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-[22px] bg-slate-50 p-5"><div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Employee ID</div><div className="mt-2 text-lg font-semibold text-ink">{user.employeeId || '—'}</div></div>
+              <div className="rounded-[22px] bg-slate-50 p-5"><div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Designation</div><div className="mt-2 text-lg font-semibold text-ink">{user.designation || '—'}</div></div>
+              <div className="rounded-[22px] bg-slate-50 p-5"><div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Department</div><div className="mt-2 text-lg font-semibold text-ink">{user.department || '—'}</div></div>
+              <div className="rounded-[22px] bg-slate-50 p-5"><div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Business Line</div><div className="mt-2 text-lg font-semibold text-ink">{businessLineLabel(user)}</div></div>
+            </div>
+            <div className="mt-5 rounded-[22px] bg-slate-50 p-5">
+              <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Employee Type</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(user.employeeTypes || []).length ? user.employeeTypes.map((type) => <Tag key={type} tone="blue">{type}</Tag>) : <Tag tone="slate">Not set</Tag>}
+              </div>
+            </div>
+          </Panel>
+        </div>
+      </div>
+    );
+
+    const App = () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const standaloneCourseId = searchParams.get('courseView') === '1' ? searchParams.get('courseId') : '';
+      const [sessionEmail, setSessionEmail] = useState(() => readSession());
+      const [users, setUsers] = usePersistentState('users', []);
+      const [courses, setCourses] = usePersistentState('courses', []);
+      const [modules, setModules] = usePersistentState('modules', []);
+      const [assignments, setAssignments] = usePersistentState('assignments', []);
+      const [assignmentRules, setAssignmentRules] = usePersistentState('assignment_rules', []);
+      const [quizzes, setQuizzes] = usePersistentState('quizzes', []);
+      const [progress, setProgress] = usePersistentState('progress', []);
+      const [quizAttempts, setQuizAttempts] = usePersistentState('quiz_attempts', []);
+      const [certificates, setCertificates] = usePersistentState('certificates', []);
+      const [view, setView] = useState('dashboard');
+      const [navOpen, setNavOpen] = useState(false);
+
+      useEffect(() => {
+        const timer = setInterval(() => {
+          const valid = readSession();
+          if (!valid && sessionEmail) {
+            setSessionEmail(null);
+            setView('dashboard');
+          }
+        }, 60000);
+        return () => clearInterval(timer);
+      }, [sessionEmail]);
+
+      useEffect(() => {
+        const bootstrapExists = users.some((user) => user.email === SUPER_EMAIL);
+        if (!bootstrapExists && sessionEmail === SUPER_EMAIL) {
+          setUsers([
+            ...users,
+            {
+              id: uid(),
+              employeeId: 'ALS-ADM-001',
+              name: slugName(SUPER_EMAIL),
+              designation: 'LMS Super Admin',
+              email: SUPER_EMAIL,
+              department: 'Learning & Development',
+              businessLine: BUSINESS_LINES[0],
+              businessLineOther: '',
+              employeeTypes: ['White-collar'],
+              role: 'superadmin',
+              createdAt: Date.now(),
+              createdBy: 'system',
+            },
+          ]);
+        }
+      }, [sessionEmail, users]);
+
+      useEffect(() => {
+        if (!users.length) return;
+        const nextCertificates = [...certificates];
+        let changed = false;
+        users.filter((user) => user.role === 'learner').forEach((user) => {
+          courses.forEach((course) => {
+            const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
+            if (!status.assigned || !status.completed) return;
+            const existing = nextCertificates.find((item) => item.email === user.email && item.courseId === course.id);
+            if (!existing) {
+              nextCertificates.push({
+                id: uid(),
+                email: user.email,
+                learnerName: user.name,
+                employeeId: user.employeeId,
+                courseId: course.id,
+                courseTitle: course.title,
+                courseType: course.type,
+                badgeTitle: `${course.title} Completion Badge`,
+                issuedAt: Date.now(),
+                emailStatus: `Certificate sent to ${user.email}`,
+              });
+              changed = true;
+            }
+          });
+        });
+        if (changed) setCertificates(nextCertificates);
+      }, [users, courses, modules, assignments, progress, quizzes, quizAttempts]);
+
+      const login = (email) => {
+        const existing = users.find((user) => user.email === email);
+        if (!existing && email !== SUPER_EMAIL) {
+          alert('This company email has not been created in the LMS yet. Use Create Account first.');
+          return;
+        }
+        setSession(email);
+        setSessionEmail(email);
+      };
+
+      const createAccount = (form) => {
+        const email = clean(form.email, 120).toLowerCase();
+        if (!clean(form.employeeId, 50) || !clean(form.name, 120) || !clean(form.designation, 120) || !clean(form.department, 120)) {
+          return { ok: false, message: 'Complete all employee fields before creating the account.' };
+        }
+        if (!EMAIL_RE.test(email)) {
+          return { ok: false, message: 'Employee email must use the @equipment.ae company format.' };
+        }
+        if ((form.employeeTypes || []).length === 0) {
+          return { ok: false, message: 'Select at least one employee type.' };
+        }
+        if (form.businessLine === 'Other' && !clean(form.businessLineOther, 120)) {
+          return { ok: false, message: 'Enter the business line name when selecting Other.' };
+        }
+        if (users.some((user) => user.email === email)) {
+          return { ok: false, message: 'An account with this email already exists.' };
+        }
+
+        const user = {
+          id: uid(),
+          employeeId: clean(form.employeeId, 50),
+          name: clean(form.name, 120),
+          designation: clean(form.designation, 120),
+          email,
+          department: clean(form.department, 120),
+          businessLine: form.businessLine,
+          businessLineOther: form.businessLine === 'Other' ? clean(form.businessLineOther, 120) : '',
+          employeeTypes: form.employeeTypes,
+          role: 'learner',
+          createdAt: Date.now(),
+          createdBy: 'login-page',
+        };
+
+        const nextUsers = [...users, user];
+        setUsers(nextUsers);
+
+        const autoAssignments = assignmentRules
+          .filter((rule) => ruleMatchesUser(rule, user))
+          .filter((rule) => !assignments.some((item) => item.email === user.email && item.courseId === rule.courseId))
+          .map((rule) => ({
+            id: uid(),
+            email: user.email,
+            courseId: rule.courseId,
+            dueDate: rule.dueDate || '',
+            assignedAt: Date.now(),
+            source: `Rule: ${rule.name}`,
+          }));
+
+        if (autoAssignments.length) {
+          setAssignments([...assignments, ...autoAssignments]);
+        }
+
+        return { ok: true, message: `${user.name} was created successfully. You can sign in now.` };
+      };
+
+      const logout = () => {
+        store.clear('session');
+        setSessionEmail(null);
+        setView('dashboard');
+      };
+
+      if (!sessionEmail) {
+        return <LoginPage onLogin={login} onCreateAccount={createAccount} />;
+      }
+
+      const user = users.find((item) => item.email === sessionEmail);
+      if (!user) {
+        return <LoginPage onLogin={login} />;
+      }
+
+      const adminLike = ['superadmin', 'admin', 'hr'].includes(user.role);
+      const openCourseInNewTab = (courseId) => {
+        window.open(makeCourseTabUrl(courseId), '_blank', 'noopener');
+      };
+      const progressSummary = {
+        quizAttemptsByUser: quizAttempts.reduce((acc, attempt) => {
+          if (!acc[attempt.email]) acc[attempt.email] = [];
+          acc[attempt.email].push(attempt);
+          return acc;
+        }, {}),
+      };
+
+      const renderView = () => {
+        if (view === 'profile') return <ProfilePage user={user} />;
+        if (adminLike) {
+          if (view === 'dashboard') return <AdminDashboard users={users} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progressSummary} certificates={certificates} />;
+          if (view === 'participants') return <ParticipantManagement users={users} setUsers={setUsers} currentUser={user} />;
+          if (view === 'course-mgmt') return <CourseManagement courses={courses} setCourses={setCourses} />;
+          if (view === 'module-mgmt') return <ModuleManagement courses={courses} modules={modules} setModules={setModules} />;
+          if (view === 'assignment-mgmt') return <AssignmentManagement users={users} courses={courses} assignments={assignments} setAssignments={setAssignments} assignmentRules={assignmentRules} setAssignmentRules={setAssignmentRules} />;
+          if (view === 'quiz-mgmt') return <QuizManagement courses={courses} modules={modules} quizzes={quizzes} setQuizzes={setQuizzes} />;
+          if (view === 'reports') return <Reports users={users} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} quizAttempts={quizAttempts} progress={progress} certificates={certificates} />;
+          if (view === 'recognition') return <RecognitionHub viewer={user} courses={courses} certificates={certificates} />;
+        }
+        if (view === 'dashboard') return <LearnerDashboard user={user} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} certificates={certificates} onOpenCourse={openCourseInNewTab} />;
+        if (view === 'my-courses') return <LearnerCourses user={user} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} onOpenCourse={openCourseInNewTab} />;
+        if (view === 'progress') return <LearnerProgress user={user} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} certificates={certificates} />;
+        if (view === 'recognition') return <RecognitionHub viewer={user} courses={courses} certificates={certificates} />;
+        return <ProfilePage user={user} />;
+      };
+
+      if (standaloneCourseId) {
+        const standaloneCourse = courses.find((course) => course.id === standaloneCourseId);
+        if (standaloneCourse) {
+          return (
+            <CourseDetailPage
+              user={user}
+              course={standaloneCourse}
+              modules={modules}
+              quizzes={quizzes}
+              assignments={assignments}
+              progress={progress}
+              setProgress={setProgress}
+              quizAttempts={quizAttempts}
+              setQuizAttempts={setQuizAttempts}
+            />
+          );
+        }
+      }
+
+      return (
+        <div className="page-shell min-h-screen">
+          <Header user={user} onToggleNav={() => setNavOpen((prev) => !prev)} onLogout={logout} onProfile={() => setView('profile')} />
+          <div className="mx-auto flex max-w-[1600px] gap-6 px-4 py-6 md:px-6">
+            <Sidebar role={user.role} view={view} setView={setView} open={navOpen} setOpen={setNavOpen} />
+            <main className="min-w-0 flex-1">
+              {renderView()}
+            </main>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

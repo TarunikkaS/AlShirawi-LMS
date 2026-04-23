@@ -1,0 +1,13 @@
+.DS_Store
+.dist/
+*.log
+node_modules/
+
+# Keep user data private. The app stores data in browser localStorage,
+# but ignore common exported backup names if any are created manually.
+localStorage*.json
+lms_users*.json
+users*.json
+user-data*.json
+*.sqlite
+*.db
