@@ -29,16 +29,6 @@ The current project uses:
 - jsPDF via CDN for certificate PDF download
 - Browser `localStorage` for prototype persistence
 
-There is currently:
-
-- No backend API
-- No server-side authentication
-- No production database
-- No build system
-- No Node.js app
-- No Firebase or Supabase
-- No cloud deployment configuration
-
 ## How to Run Locally
 
 Open this file in a browser:
@@ -82,20 +72,8 @@ This includes:
 
 This means data is local to the browser and device where the file is opened.
 
-## Privacy and GitHub Protection
 
-The repository does not include a production user database.
 
-Do not commit:
-
-- Exported localStorage data
-- Employee data exports
-- Screenshots containing employee records
-- Database files
-- Manually downloaded user records
-- Any confidential company training data
-
-The `.gitignore` file includes common patterns for local database/export files.
 
 ## Files
 
@@ -154,3 +132,6 @@ Before production release, the following should be completed:
 ## Important Note
 
 This repository is a frontend prototype only. It demonstrates how the LMS can look and behave, but it should not be used as the final production system without backend, database, authentication, hosting, and security upgrades.
+## LMS WORKFLOW
+<img width="1056" height="571" alt="Screenshot 2026-04-23 at 2 36 50 PM" src="https://github.com/user-attachments/assets/2d1c5f41-1722-4643-b4df-c8aad0ee2709" />
+
