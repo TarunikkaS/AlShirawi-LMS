@@ -11,3 +11,7 @@ users*.json
 user-data*.json
 *.sqlite
 *.db
+.vercel
+.env
+api/.env
+.env*.local

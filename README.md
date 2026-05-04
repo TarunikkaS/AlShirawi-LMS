@@ -1,12 +1,12 @@
 # Al Shirawi Equipment Co Learning Management System
 
-This repository contains a frontend-only LMS prototype for Al Shirawi Equipment Co.
+This repository contains an LMS prototype for Al Shirawi Equipment Co.
 
-The project is intentionally built as one simple HTML file so it can be opened locally, reviewed easily, and demonstrated without any backend setup.
+The main frontend is still intentionally built as one simple HTML file, but LMS data persistence now goes through Vercel API routes into Supabase instead of browser-only `localStorage`.
 
 ## Current Prototype Scope
 
-This version is a single-file local prototype.
+This version keeps the existing email-based LMS login flow and uses Supabase for LMS records.
 
 It is suitable for:
 - Internal LMS flow demonstrations
@@ -27,27 +27,46 @@ The current project uses:
 - Babel via CDN
 - Tailwind CSS via CDN
 - jsPDF via CDN for certificate PDF download
-- Browser `localStorage` for prototype persistence
+- Supabase Postgres for LMS persistence
+- Vercel Serverless Functions for the data API
 
 There is currently:
 
-- No backend API
+- A small Vercel API for LMS data reads/writes
 - No server-side authentication
-- No production database
+- No Supabase Auth yet
 - No build system
 - No Node.js app
-- No Firebase or Supabase
-- No cloud deployment configuration
 
 ## How to Run Locally
 
-Open this file in a browser:
+The Supabase-backed version must be served through Vercel or another server that provides the `/api/lms-data` route. Opening the HTML file directly no longer provides persistent LMS data access:
 
 ```text
 AlShirawi_LMS copy.html
 ```
 
-No installation is required.
+No package install is required for the frontend itself.
+
+## Supabase Setup
+
+1. Create the tables by running:
+
+```text
+supabase/schema.sql
+```
+
+2. Set these environment variables in Vercel:
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` must be set only on the server side in Vercel. Do not expose it in browser code.
+
+3. Deploy to Vercel. The root path `/` rewrites to `AlShirawi_LMS copy.html`.
 
 ## Main Features in This Prototype
 
@@ -67,7 +86,7 @@ No installation is required.
 
 ## Data Storage in Current Version
 
-All data is stored only in the browser using `localStorage`.
+LMS content records are stored in Supabase tables.
 
 This includes:
 
@@ -80,7 +99,19 @@ This includes:
 - Learner progress
 - Certificates
 
-This means data is local to the browser and device where the file is opened.
+The current session remains in browser `localStorage` so the existing login behavior is preserved. Existing LMS records found in old localStorage keys are imported into Supabase the first time the app loads and the matching Supabase table is empty.
+
+The localStorage keys migrated are:
+
+- `alshirawi_lms_v2_users`
+- `alshirawi_lms_v2_courses`
+- `alshirawi_lms_v2_modules`
+- `alshirawi_lms_v2_assignments`
+- `alshirawi_lms_v2_assignment_rules`
+- `alshirawi_lms_v2_quizzes`
+- `alshirawi_lms_v2_progress`
+- `alshirawi_lms_v2_quiz_attempts`
+- `alshirawi_lms_v2_certificates`
 
 ## Privacy and GitHub Protection
 
@@ -106,13 +137,13 @@ The `.gitignore` file includes common patterns for local database/export files.
 
 ## Future Production Direction
 
-Before going into production, this prototype should be converted from a browser-only HTML file into a proper company-hosted LMS application.
+Before going into production, this prototype should add real authentication and server-side authorization.
 
 Recommended future architecture:
 
 - Host the application on the company's approved server or cloud environment
 - Use company-managed authentication, preferably integrated with company email or SSO
-- Move all LMS data from browser `localStorage` into a secure production database
+- Keep LMS data in Supabase Postgres
 - Use role-based backend authorization for admin, trainer, HR, and learner access
 - Store training files, images, documents, and videos in approved cloud or company storage
 - Add audit logs for account creation, role changes, assignments, quiz attempts, and certificate generation
@@ -137,11 +168,10 @@ The current prototype does not connect to GCP yet. GCP should be added only duri
 
 Before production release, the following should be completed:
 
-- Replace `localStorage` with a secure database
-- Add backend APIs
+- Add Supabase Auth or approved company SSO
 - Add secure authentication
 - Add role-based authorization on the server
-- Add database schema for users, courses, modules, assignments, quizzes, progress, and certificates
+- Tighten Row Level Security policies around authenticated users and roles
 - Add file upload storage for module assets
 - Add input validation on both frontend and backend
 - Add encryption and access control for employee data

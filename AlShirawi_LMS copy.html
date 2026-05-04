@@ -99,12 +99,68 @@
         z-index: 40;
       }
     }
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.75s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.75s cubic-bezier(0.22, 0.61, 0.36, 1);
+      will-change: opacity, transform;
+    }
+    .reveal.in-view {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .video-frame {
+      position: relative;
+      width: 100%;
+      padding-top: 56.25%;
+      background: #020617;
+      overflow: hidden;
+    }
+    .video-frame iframe,
+    .video-frame video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      background: #020617;
+    }
+    .carousel-img {
+      animation: carouselFade 0.45s ease-out;
+    }
+    @keyframes carouselFade {
+      from { opacity: 0; transform: scale(1.015); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .tab-pill {
+      transition: all 0.18s ease;
+    }
+    .module-flow .module-card {
+      position: relative;
+    }
+    .module-flow .module-card + .module-card {
+      margin-top: 4rem;
+    }
+    .module-flow .module-card::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: -2.5rem;
+      transform: translateX(-50%);
+      width: 1px;
+      height: 1.75rem;
+      background: linear-gradient(180deg, transparent, rgba(29, 78, 216, 0.35));
+    }
+    .module-flow .module-card:first-child::before {
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useEffect, useState } = React;
+    const { useEffect, useMemo, useRef, useState } = React;
 
     const STORAGE_PREFIX = 'alshirawi_lms_v2_';
     const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@equipment\.ae$/i;
@@ -119,7 +175,6 @@
       'Atlas Services',
       'Other',
     ];
-    const EMPLOYEE_TYPES = ['Blue-collar', 'White-collar'];
     const COURSE_TYPES = ['Essential', 'Desirable'];
     const TRAINING_TYPES = ['Behavioral', 'Functional'];
     const BEHAVIORAL_FOCUS = ['Communication', 'Personality Development'];
@@ -153,6 +208,57 @@
       },
     };
 
+    const DATA_COLLECTIONS = [
+      'users',
+      'courses',
+      'modules',
+      'assignments',
+      'assignment_rules',
+      'quizzes',
+      'progress',
+      'quiz_attempts',
+      'certificates',
+    ];
+
+    const dataApi = {
+      async request(collection, method = 'GET', payload) {
+        if (!DATA_COLLECTIONS.includes(collection)) {
+          throw new Error(`Unknown LMS collection: ${collection}`);
+        }
+        const response = await fetch(`/api/lms-data?collection=${encodeURIComponent(collection)}`, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-LMS-Session-Email': readSession() || '',
+          },
+          body: payload ? JSON.stringify(payload) : undefined,
+        });
+        if (!response.ok) {
+          const details = await response.json().catch(() => ({}));
+          throw new Error(details.error || `Supabase request failed for ${collection}`);
+        }
+        return response.json();
+      },
+      async loadCollection(collection, fallback) {
+        const result = await this.request(collection);
+        const remoteRecords = Array.isArray(result.records) ? result.records : fallback;
+        const legacyRecords = store.read(collection, []);
+        const migrationFlag = `supabase_migrated_${collection}`;
+        if (remoteRecords.length === 0 && legacyRecords.length > 0 && !store.read(migrationFlag, false)) {
+          await this.saveCollection(collection, legacyRecords);
+          store.write(migrationFlag, true);
+          return legacyRecords;
+        }
+        return remoteRecords;
+      },
+      async saveCollection(collection, records, previousRecords = []) {
+        await this.request(collection, 'PUT', {
+          records: Array.isArray(records) ? records : [],
+          previousIds: Array.isArray(previousRecords) ? previousRecords.map((item) => item.id).filter(Boolean) : [],
+        });
+      },
+    };
+
     const readSession = () => {
       const session = store.read('session', null);
       if (!session || !session.email || !session.expiresAt) return null;
@@ -167,10 +273,42 @@
       store.write('session', { email, expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000 });
     };
 
-    const usePersistentState = (key, fallback) => {
-      const [value, setValue] = useState(() => store.read(key, fallback));
-      useEffect(() => { store.write(key, value); }, [key, value]);
-      return [value, setValue];
+    const useSupabaseCollection = (key, fallback) => {
+      const [value, setValue] = useState(fallback);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        let active = true;
+        setLoading(true);
+        dataApi.loadCollection(key, fallback)
+          .then((records) => {
+            if (active) {
+              setValue(records);
+              setError('');
+            }
+          })
+          .catch((err) => {
+            if (active) setError(err.message || 'Unable to load LMS data from Supabase.');
+          })
+          .finally(() => {
+            if (active) setLoading(false);
+          });
+        return () => { active = false; };
+      }, [key]);
+
+      const setSyncedValue = (nextValue) => {
+        setValue((prev) => {
+          const resolved = typeof nextValue === 'function' ? nextValue(prev) : nextValue;
+          dataApi.saveCollection(key, resolved, prev).catch((err) => {
+            console.error(err);
+            setError(err.message || 'Unable to save LMS data to Supabase.');
+          });
+          return resolved;
+        });
+      };
+
+      return [value, setSyncedValue, { loading, error }];
     };
 
     const Logo = ({ className = 'h-9', mono = false }) => (
@@ -326,6 +464,18 @@
       </Panel>
     );
 
+    const LoadingScreen = ({ message = 'Loading LMS data from Supabase...' }) => (
+      <div className="page-shell flex min-h-screen items-center justify-center px-4">
+        <Panel className="w-full max-w-md p-8 text-center">
+          <Logo className="mx-auto h-12" />
+          <div className="mx-auto mt-6 h-2 w-32 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full w-16 animate-pulse rounded-full bg-gradient-to-r from-brand to-tealish" />
+          </div>
+          <p className="mt-5 text-sm font-semibold text-slate-600">{message}</p>
+        </Panel>
+      </div>
+    );
+
     const Modal = ({ title, subtitle, children, onClose, actions, wide = false }) => (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
         <div className={`max-h-[92vh] w-full overflow-hidden rounded-[28px] bg-white shadow-float ${wide ? 'max-w-6xl' : 'max-w-3xl'}`}>
@@ -343,6 +493,126 @@
     );
 
     const Divider = () => <div className="my-6 border-t border-slate-100" />;
+
+    const Reveal = ({ children, delay = 0, className = '', as: Tag = 'div' }) => {
+      const ref = useRef(null);
+      const [visible, setVisible] = useState(false);
+      useEffect(() => {
+        const node = ref.current;
+        if (!node) return;
+        if (typeof IntersectionObserver === 'undefined') {
+          setVisible(true);
+          return;
+        }
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              setVisible(true);
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+        observer.observe(node);
+        return () => observer.disconnect();
+      }, []);
+      return (
+        <Tag
+          ref={ref}
+          className={`reveal ${visible ? 'in-view' : ''} ${className}`}
+          style={{ transitionDelay: `${delay}ms` }}
+        >
+          {children}
+        </Tag>
+      );
+    };
+
+    const VideoFrame = ({ url, title }) => {
+      if (!url) return null;
+      const source = detectVideoSource(url);
+      if (source.kind === 'none') return null;
+      return (
+        <div className="video-frame rounded-[28px] shadow-float">
+          {source.kind === 'file' ? (
+            <video src={source.src} controls preload="metadata" playsInline />
+          ) : (
+            <iframe
+              key={source.src}
+              src={source.src}
+              title={title || 'YouTube video player'}
+              frameBorder="0"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          )}
+        </div>
+      );
+    };
+
+    const ImageCarousel = ({ images }) => {
+      const [index, setIndex] = useState(0);
+      if (!images || images.length === 0) return null;
+      const safeIndex = Math.min(index, images.length - 1);
+      const current = images[safeIndex];
+      const prev = () => setIndex((i) => (i - 1 + images.length) % images.length);
+      const next = () => setIndex((i) => (i + 1) % images.length);
+      return (
+        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-float">
+          <div className="relative bg-gradient-to-br from-slate-900 to-slate-800">
+            <div className="flex min-h-[280px] items-center justify-center md:min-h-[420px]">
+              <img
+                key={current.id}
+                src={current.dataUrl}
+                alt={current.label || current.name}
+                className="carousel-img max-h-[480px] w-full object-contain"
+              />
+            </div>
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={prev}
+                  aria-label="Previous image"
+                  className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-xl font-bold text-slate-700 shadow-float transition hover:scale-110 hover:bg-white"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={next}
+                  aria-label="Next image"
+                  className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-xl font-bold text-slate-700 shadow-float transition hover:scale-110 hover:bg-white"
+                >
+                  ›
+                </button>
+                <div className="absolute right-4 top-4 rounded-full bg-black/40 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                  {safeIndex + 1} / {images.length}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex flex-col gap-3 border-t border-slate-100 px-6 py-5 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-400">Visual Reference</div>
+              <div className="display-font mt-1 truncate text-lg font-800 text-ink">{current.label || current.name}</div>
+            </div>
+            {images.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((image, i) => (
+                  <button
+                    key={image.id}
+                    type="button"
+                    aria-label={`Go to image ${i + 1}`}
+                    onClick={() => setIndex(i)}
+                    className={`h-2 rounded-full transition-all ${i === safeIndex ? 'w-8 bg-brand' : 'w-2 bg-slate-300 hover:bg-slate-400'}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
 
     const readFilesAsDataUrls = async (fileList) => {
       const files = Array.from(fileList || []);
@@ -381,11 +651,9 @@
 
     const moduleMatchesUser = (module, user) => {
       const profile = module.applicability || {};
-      const hasEmployeeTypeRule = (profile.employeeTypes || []).length > 0;
       const hasBusinessLineRule = (profile.businessLines || []).length > 0;
       const designationRule = normalize(profile.designationKeyword);
       const departmentRule = normalize(profile.departmentKeyword);
-      if (hasEmployeeTypeRule && !(user.employeeTypes || []).some((type) => profile.employeeTypes.includes(type))) return false;
       if (hasBusinessLineRule && !profile.businessLines.includes(user.businessLine)) return false;
       if (designationRule && !normalize(user.designation).includes(designationRule)) return false;
       if (departmentRule && !normalize(user.department).includes(departmentRule)) return false;
@@ -393,7 +661,6 @@
     };
 
     const ruleMatchesUser = (rule, user) => {
-      if ((rule.employeeTypes || []).length > 0 && !(user.employeeTypes || []).some((type) => rule.employeeTypes.includes(type))) return false;
       if ((rule.businessLines || []).length > 0 && !rule.businessLines.includes(user.businessLine)) return false;
       if (normalize(rule.departmentKeyword) && !normalize(user.department).includes(normalize(rule.departmentKeyword))) return false;
       if (normalize(rule.designationKeyword) && !normalize(user.designation).includes(normalize(rule.designationKeyword))) return false;
@@ -407,32 +674,57 @@
 
     const getQuizAttemptsFor = (quizAttempts, email, quizId) => quizAttempts.filter((attempt) => attempt.email === email && attempt.quizId === quizId);
     const hasPassedQuiz = (quizAttempts, email, quizId) => getQuizAttemptsFor(quizAttempts, email, quizId).some((attempt) => attempt.passed);
-    const isDirectVideoFile = (url) => /\.(mp4|webm|ogg)(\?.*)?$/i.test(url || '');
-    const getEmbeddableVideoUrl = (url) => {
-      const raw = String(url || '').trim();
-      if (!raw) return '';
+    const isDirectVideoFile = (url) => /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url || '');
+    const isDataVideo = (url) => /^data:video\//i.test(url || '');
+    const extractYouTubeId = (raw) => {
       try {
         const parsed = new URL(raw);
         const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
-        if (host === 'youtube.com' || host === 'm.youtube.com') {
-          const videoId = parsed.searchParams.get('v');
-          if (videoId) return `https://www.youtube.com/embed/${videoId}`;
-        }
         if (host === 'youtu.be') {
-          const videoId = parsed.pathname.replace('/', '');
-          if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+          const id = parsed.pathname.replace('/', '').split('?')[0];
+          return id || null;
         }
+        if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com' || host === 'youtube-nocookie.com') {
+          const v = parsed.searchParams.get('v');
+          if (v) return v;
+          const shorts = parsed.pathname.match(/\/shorts\/([\w-]+)/);
+          if (shorts) return shorts[1];
+          const live = parsed.pathname.match(/\/live\/([\w-]+)/);
+          if (live) return live[1];
+          const embed = parsed.pathname.match(/\/embed\/([\w-]+)/);
+          if (embed) return embed[1];
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    };
+    const buildYouTubeEmbed = (videoId) => `https://www.youtube.com/embed/${videoId}`;
+    const detectVideoSource = (url) => {
+      const raw = String(url || '').trim();
+      if (!raw) return { kind: 'none', src: '' };
+      if (isDataVideo(raw) || isDirectVideoFile(raw)) return { kind: 'file', src: raw };
+      const ytId = extractYouTubeId(raw);
+      if (ytId) return { kind: 'youtube', src: buildYouTubeEmbed(ytId), videoId: ytId };
+      try {
+        const parsed = new URL(raw);
+        const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
         if (host === 'vimeo.com' || host === 'player.vimeo.com') {
           const parts = parsed.pathname.split('/').filter(Boolean);
           const videoId = parts[parts.length - 1];
-          if (videoId) return `https://player.vimeo.com/video/${videoId}`;
+          if (videoId && /^\d+$/.test(videoId)) return { kind: 'iframe', src: `https://player.vimeo.com/video/${videoId}` };
         }
-        if (raw.includes('/embed/')) return raw;
-        return raw;
+        if (host.includes('loom.com')) {
+          const match = parsed.pathname.match(/\/share\/([\w]+)/) || parsed.pathname.match(/\/embed\/([\w]+)/);
+          if (match) return { kind: 'iframe', src: `https://www.loom.com/embed/${match[1]}` };
+        }
+        if (raw.includes('/embed/')) return { kind: 'iframe', src: raw };
       } catch {
-        return raw;
+        return { kind: 'iframe', src: raw };
       }
+      return { kind: 'iframe', src: raw };
     };
+    const getEmbeddableVideoUrl = (url) => detectVideoSource(url).src;
     const makeCourseTabUrl = (courseId) => {
       const next = new URL(window.location.href);
       next.searchParams.set('courseId', courseId);
@@ -550,7 +842,6 @@
         department: '',
         businessLine: BUSINESS_LINES[0],
         businessLineOther: '',
-        employeeTypes: [],
       });
 
       const submit = (e) => {
@@ -565,10 +856,6 @@
       };
 
       const updateCreateForm = (field, value) => setCreateForm((prev) => ({ ...prev, [field]: value }));
-      const toggleType = (type) => setCreateForm((prev) => ({
-        ...prev,
-        employeeTypes: prev.employeeTypes.includes(type) ? prev.employeeTypes.filter((item) => item !== type) : [...prev.employeeTypes, type],
-      }));
 
       const createAccount = (e) => {
         e.preventDefault();
@@ -584,7 +871,6 @@
             department: '',
             businessLine: BUSINESS_LINES[0],
             businessLineOther: '',
-            employeeTypes: [],
           });
           setMode('signin');
         } else {
@@ -668,15 +954,6 @@
                       required
                     />
                   )}
-
-                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                    <div className="mb-3 text-sm font-semibold text-slate-700">Employee Type</div>
-                    <div className="flex flex-wrap gap-3">
-                      {EMPLOYEE_TYPES.map((type) => (
-                        <CheckboxPill key={type} checked={createForm.employeeTypes.includes(type)} onChange={() => toggleType(type)} label={type} />
-                      ))}
-                    </div>
-                  </div>
 
                   {createError && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
                   <Button type="submit" className="w-full justify-center py-3 text-base">Create Account</Button>
@@ -769,7 +1046,6 @@
         department: '',
         businessLine: BUSINESS_LINES[0],
         businessLineOther: '',
-        employeeTypes: [],
         role: 'learner',
       });
       const [message, setMessage] = useState('');
@@ -779,10 +1055,6 @@
       const recentUsers = [...users].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
       const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
-      const toggleType = (type) => setForm((prev) => ({
-        ...prev,
-        employeeTypes: prev.employeeTypes.includes(type) ? prev.employeeTypes.filter((item) => item !== type) : [...prev.employeeTypes, type],
-      }));
 
       const syncAssignmentsForNewUser = (user) => {
         const matchingRules = assignmentRules.filter((rule) => ruleMatchesUser(rule, user));
@@ -819,10 +1091,6 @@
           setError('Employee email must be a valid company email in the @equipment.ae format.');
           return;
         }
-        if (form.employeeTypes.length === 0) {
-          setError('Select at least one employee type.');
-          return;
-        }
         if (form.businessLine === 'Other' && !clean(form.businessLineOther, 120)) {
           setError('Enter the manual business line name when selecting Other.');
           return;
@@ -842,7 +1110,6 @@
           department: clean(form.department, 120),
           businessLine: form.businessLine,
           businessLineOther: form.businessLine === 'Other' ? clean(form.businessLineOther, 120) : '',
-          employeeTypes: form.employeeTypes,
           role,
           createdAt: Date.now(),
           createdBy: currentUser.email,
@@ -859,7 +1126,6 @@
           department: '',
           businessLine: BUSINESS_LINES[0],
           businessLineOther: '',
-          employeeTypes: [],
           role: 'learner',
         });
         setMessage(`${user.name} created successfully. The employee can now sign in with ${user.email}.`);
@@ -905,20 +1171,6 @@
                     required
                   />
                 )}
-
-                <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                  <div className="mb-3 text-sm font-semibold text-slate-700">Employee Type</div>
-                  <div className="flex flex-wrap gap-3">
-                    {EMPLOYEE_TYPES.map((type) => (
-                      <CheckboxPill
-                        key={type}
-                        checked={form.employeeTypes.includes(type)}
-                        onChange={() => toggleType(type)}
-                        label={type}
-                      />
-                    ))}
-                  </div>
-                </div>
 
                 {canCreateElevated && (
                   <SelectInput
@@ -967,7 +1219,6 @@
                       <Tag tone={roleTone(user.role)}>{roleLabel(user.role)}</Tag>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {(user.employeeTypes || []).map((type) => <Tag key={type} tone="blue">{type}</Tag>)}
                       <Tag tone="teal">{businessLineLabel(user)}</Tag>
                       <Tag tone="slate">Created {fmtDateTime(user.createdAt)}</Tag>
                     </div>
@@ -1033,9 +1284,6 @@
                         <td className="px-5 py-4">
                           <div>{user.designation}</div>
                           <div className="mt-1 text-xs text-slate-500">{user.department}</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {(user.employeeTypes || []).map((type) => <Tag key={type} tone="blue">{type}</Tag>)}
-                          </div>
                         </td>
                         <td className="px-5 py-4">{businessLineLabel(user)}</td>
                         <td className="px-5 py-4">{fmtDateTime(user.createdAt)}</td>
@@ -1078,7 +1326,25 @@
       const [editing, setEditing] = useState(null);
       const [form, setForm] = useState(initialForm);
       const [error, setError] = useState('');
+      const [activeTab, setActiveTab] = useState('all');
       const isEditing = Boolean(editing && editing.id);
+
+      const tabs = [
+        { id: 'all', label: 'All Courses', match: () => true, tone: 'slate' },
+        { id: 'essential', label: 'Essential', match: (course) => course.type === 'Essential', tone: 'amber' },
+        { id: 'desirable', label: 'Desirable', match: (course) => course.type === 'Desirable', tone: 'teal' },
+        { id: 'behavioral', label: 'Behavioral', match: (course) => course.trainingType === 'Behavioral', tone: 'blue' },
+        { id: 'functional', label: 'Functional', match: (course) => course.trainingType === 'Functional', tone: 'violet' },
+      ];
+
+      const tabCounts = useMemo(() => {
+        const counts = {};
+        tabs.forEach((tab) => { counts[tab.id] = courses.filter(tab.match).length; });
+        return counts;
+      }, [courses]);
+
+      const activeMatch = tabs.find((tab) => tab.id === activeTab) || tabs[0];
+      const filteredCourses = courses.filter(activeMatch.match);
 
       const update = (field, value) => {
         setForm((prev) => {
@@ -1135,15 +1401,49 @@
             subtitle="Create the orientation and training programs that will later be populated with modules, quizzes, assignments, and certificates."
             action={<Button onClick={openNew}>Add Course</Button>}
           />
+
+          <Panel className="p-3">
+            <div className="flex flex-wrap gap-2">
+              {tabs.map((tab) => {
+                const isActive = tab.id === activeTab;
+                const toneStyles = {
+                  slate: isActive ? 'bg-slate-900 text-white shadow-soft' : 'text-slate-600 hover:bg-slate-50',
+                  amber: isActive ? 'bg-amberish text-white shadow-soft' : 'text-amberish hover:bg-amber-50',
+                  teal: isActive ? 'bg-tealish text-white shadow-soft' : 'text-tealish hover:bg-teal-50',
+                  blue: isActive ? 'bg-brand text-white shadow-soft' : 'text-brand hover:bg-blue-50',
+                  violet: isActive ? 'bg-violet-600 text-white shadow-soft' : 'text-violet-700 hover:bg-violet-50',
+                };
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`tab-pill flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold ${toneStyles[tab.tone]}`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                      {tabCounts[tab.id]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+
           <Panel className="overflow-hidden">
             {courses.length === 0 ? (
               <div className="p-6">
-                <EmptyState title="No courses created" text="Create your first essential or desirable course to begin the admin flow." />
+                <EmptyState title="No courses created" text="Create your first essential or behavioral course to begin the admin flow." />
+              </div>
+            ) : filteredCourses.length === 0 ? (
+              <div className="p-6">
+                <EmptyState title={`No ${activeMatch.label.toLowerCase()} courses yet`} text="Switch tabs to view other course categories or add a new course." />
               </div>
             ) : (
               <div className="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
-                {courses.map((course) => (
-                  <div key={course.id} className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-5 shadow-soft">
+                {filteredCourses.map((course) => (
+                  <div key={course.id} className="group relative overflow-hidden rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-5 shadow-soft transition hover:-translate-y-0.5 hover:shadow-float">
+                    <div className={`absolute inset-x-0 top-0 h-1 ${course.type === 'Essential' ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`} />
                     <div className="flex flex-wrap gap-2">
                       <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
                       <Tag tone="blue">{course.trainingType}</Tag>
@@ -1201,10 +1501,8 @@
         description: '',
         order: 1,
         videoUrl: '',
-        transcript: '',
         notes: '',
         applicability: {
-          employeeTypes: [],
           designationKeyword: '',
           departmentKeyword: '',
           businessLines: [],
@@ -1216,6 +1514,7 @@
       const [form, setForm] = useState(blankForm);
       const [pendingDocs, setPendingDocs] = useState([]);
       const [pendingImages, setPendingImages] = useState([]);
+      const imageInputRef = useRef(null);
       const [error, setError] = useState('');
 
       useEffect(() => {
@@ -1239,9 +1538,8 @@
           description: '',
           order: modules.filter((module) => module.courseId === (courses[0]?.id || '')).length + 1 || 1,
           videoUrl: '',
-          transcript: '',
           notes: '',
-          applicability: { employeeTypes: [], designationKeyword: '', departmentKeyword: '', businessLines: [] },
+          applicability: { designationKeyword: '', departmentKeyword: '', businessLines: [] },
           documents: [],
           images: [],
         });
@@ -1254,7 +1552,7 @@
         setEditing(module);
         setForm({
           ...module,
-          applicability: module.applicability || { employeeTypes: [], designationKeyword: '', departmentKeyword: '', businessLines: [] },
+          applicability: module.applicability || { designationKeyword: '', departmentKeyword: '', businessLines: [] },
           documents: module.documents || [],
           images: module.images || [],
         });
@@ -1264,13 +1562,16 @@
       };
 
       const removeAsset = (field, id) => setForm((prev) => ({ ...prev, [field]: (prev[field] || []).filter((item) => item.id !== id) }));
+      const removePendingImage = (id) => setPendingImages((prev) => prev.filter((entry) => entry.id !== id));
       const onImageFileChange = (files) => {
-        const nextEntries = Array.from(files || []).map((file) => ({
+        const additions = Array.from(files || []).map((file) => ({
           id: uid(),
           file,
           label: file.name.replace(/\.[^/.]+$/, ''),
         }));
-        setPendingImages(nextEntries);
+        if (!additions.length) return;
+        setPendingImages((prev) => [...prev, ...additions]);
+        if (imageInputRef.current) imageInputRef.current.value = '';
       };
       const updatePendingImageLabel = (id, value) => {
         setPendingImages((prev) => prev.map((entry) => entry.id === id ? { ...entry, label: value } : entry));
@@ -1291,10 +1592,8 @@
             description: clean(form.description, 700),
             order: Number(form.order) || 1,
             videoUrl: clean(form.videoUrl, 400),
-            transcript: clean(form.transcript, 6000),
             notes: clean(form.notes, 4000),
             applicability: {
-              employeeTypes: form.applicability.employeeTypes || [],
               designationKeyword: clean(form.applicability.designationKeyword, 80),
               departmentKeyword: clean(form.applicability.departmentKeyword, 80),
               businessLines: form.applicability.businessLines || [],
@@ -1320,7 +1619,7 @@
         <div className="space-y-6">
           <SectionTitle
             title="Module Management"
-            subtitle="Add videos, documents, pictures, transcripts, and profile-based module applicability inside each course."
+            subtitle="Add videos, documents, pictures, notes, and profile-based module applicability inside each course."
             action={<Button onClick={openNew} disabled={courses.length === 0}>Add Module</Button>}
           />
           {courses.length === 0 && <Panel className="p-6 text-sm text-slatey">Create at least one course before adding modules.</Panel>}
@@ -1347,11 +1646,10 @@
                           <h3 className="display-font text-2xl font-800 text-ink">{module.title}</h3>
                           <p className="mt-2 text-sm leading-6 text-slatey">{module.description || 'No module description added yet.'}</p>
                           <div className="mt-4 flex flex-wrap gap-2">
-                            {(module.applicability?.employeeTypes || []).map((item) => <Tag key={item} tone="blue">{item}</Tag>)}
                             {(module.applicability?.businessLines || []).map((item) => <Tag key={item} tone="teal">{item}</Tag>)}
                             {module.applicability?.designationKeyword && <Tag tone="slate">Designation: {module.applicability.designationKeyword}</Tag>}
                             {module.applicability?.departmentKeyword && <Tag tone="slate">Department: {module.applicability.departmentKeyword}</Tag>}
-                            {!(module.applicability?.employeeTypes || []).length && !(module.applicability?.businessLines || []).length && !module.applicability?.designationKeyword && !module.applicability?.departmentKeyword && (
+                            {!(module.applicability?.businessLines || []).length && !module.applicability?.designationKeyword && !module.applicability?.departmentKeyword && (
                               <Tag tone="green">Visible to all assigned learners</Tag>
                             )}
                           </div>
@@ -1388,8 +1686,7 @@
               </div>
               <div className="mt-4 grid gap-4">
                 <TextArea label="Module Description" value={form.description} onChange={(value) => update('description', value)} rows={3} />
-                <TextArea label="Transcript / Script" value={form.transcript} onChange={(value) => update('transcript', value)} rows={5} />
-                <TextArea label="Notes / Learning Guidance" value={form.notes} onChange={(value) => update('notes', value)} rows={4} />
+                <TextArea label="Notes / Learning Content" value={form.notes} onChange={(value) => update('notes', value)} rows={6} placeholder="The notes are shown to learners on the module page in a horizontal card." />
               </div>
 
               <Divider />
@@ -1399,14 +1696,6 @@
                   <h3 className="display-font text-lg font-800 text-ink">Profile-Based Visibility</h3>
                   <p className="mt-2 text-sm text-slatey">Use these rules when modules should only appear for specific employee profiles.</p>
                   <div className="mt-4 space-y-4">
-                    <div>
-                      <div className="mb-2 text-sm font-semibold text-slate-700">Employee Types</div>
-                      <div className="flex flex-wrap gap-2">
-                        {EMPLOYEE_TYPES.map((type) => (
-                          <CheckboxPill key={type} checked={(form.applicability.employeeTypes || []).includes(type)} onChange={() => toggleArrayValue('employeeTypes', type)} label={type} />
-                        ))}
-                      </div>
-                    </div>
                     <TextInput label="Designation Contains" value={form.applicability.designationKeyword} onChange={(value) => updateApplicability('designationKeyword', value)} placeholder="e.g. technician" />
                     <TextInput label="Department Contains" value={form.applicability.departmentKeyword} onChange={(value) => updateApplicability('departmentKeyword', value)} placeholder="e.g. operations" />
                     <div>
@@ -1435,41 +1724,73 @@
                     </div>
                   </div>
                   <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                    <h3 className="display-font text-lg font-800 text-ink">Pictures / Images</h3>
-                    <p className="mt-2 text-sm text-slatey">Add diagrams, posters, reference visuals, or supporting images.</p>
-                    <input type="file" accept="image/*" multiple className="mt-4 block w-full text-sm" onChange={(e) => onImageFileChange(e.target.files)} />
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="display-font text-lg font-800 text-ink">Pictures / Images</h3>
+                        <p className="mt-2 text-sm text-slatey">Add multiple diagrams, posters, or reference visuals — they appear in a learner-facing carousel.</p>
+                      </div>
+                      <Tag tone="blue">{(form.images || []).length + pendingImages.length} total</Tag>
+                    </div>
+                    <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-sm font-semibold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50/40">
+                      <span className="text-2xl">＋</span>
+                      <span>Click to add image(s)</span>
+                      <span className="text-xs font-normal text-slate-400">You can add as many as you want — repeat to keep adding more</span>
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => onImageFileChange(e.target.files)}
+                      />
+                    </label>
                     {pendingImages.length > 0 && (
                       <div className="mt-4 space-y-3 rounded-[20px] bg-white p-4 shadow-soft">
-                        <div className="text-sm font-semibold text-slate-700">Label New Pictures</div>
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold text-slate-700">Label New Pictures ({pendingImages.length})</div>
+                          <Tag tone="amber">Pending Save</Tag>
+                        </div>
                         {pendingImages.map((entry) => (
-                          <div key={entry.id} className="grid gap-3 md:grid-cols-[160px_1fr] md:items-center">
-                            <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{entry.file.name}</div>
+                          <div key={entry.id} className="grid gap-3 md:grid-cols-[160px_1fr_auto] md:items-center">
+                            <div className="truncate rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{entry.file.name}</div>
                             <input
                               value={entry.label}
                               onChange={(e) => updatePendingImageLabel(entry.id, e.target.value)}
                               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
                               placeholder="Picture label"
                             />
+                            <button
+                              type="button"
+                              onClick={() => removePendingImage(entry.id)}
+                              className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-100"
+                            >
+                              Remove
+                            </button>
                           </div>
                         ))}
                       </div>
                     )}
-                    <div className="mt-4 overflow-x-auto">
-                      <div className="flex gap-3 pb-2">
-                      {(form.images || []).map((file) => (
-                        <div key={file.id} className="min-w-[220px] overflow-hidden rounded-[20px] border border-white bg-white shadow-soft">
-                          <img src={file.dataUrl} alt={file.label || file.name} className="h-28 w-full object-cover" />
-                          <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-slate-600">
-                            <div className="min-w-0">
-                              <div className="truncate">{file.label || file.name}</div>
-                              <div className="truncate text-[11px] text-slate-400">{file.name}</div>
-                            </div>
-                            <button type="button" onClick={() => removeAsset('images', file.id)} className="text-red-600">Remove</button>
+                    {(form.images || []).length > 0 && (
+                      <div className="mt-4">
+                        <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Saved Images</div>
+                        <div className="overflow-x-auto">
+                          <div className="flex gap-3 pb-2">
+                            {(form.images || []).map((file) => (
+                              <div key={file.id} className="min-w-[220px] overflow-hidden rounded-[20px] border border-white bg-white shadow-soft">
+                                <img src={file.dataUrl} alt={file.label || file.name} className="h-28 w-full object-cover" />
+                                <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-slate-600">
+                                  <div className="min-w-0">
+                                    <div className="truncate">{file.label || file.name}</div>
+                                    <div className="truncate text-[11px] text-slate-400">{file.name}</div>
+                                  </div>
+                                  <button type="button" onClick={() => removeAsset('images', file.id)} className="text-red-600">Remove</button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1487,7 +1808,6 @@
         name: '',
         courseId: courses[0]?.id || '',
         dueDate: '',
-        employeeTypes: [],
         designationKeyword: '',
         departmentKeyword: '',
         businessLines: [],
@@ -1559,7 +1879,6 @@
           name: clean(rule.name, 120),
           courseId: rule.courseId,
           dueDate: rule.dueDate,
-          employeeTypes: rule.employeeTypes,
           designationKeyword: clean(rule.designationKeyword, 80),
           departmentKeyword: clean(rule.departmentKeyword, 80),
           businessLines: rule.businessLines,
@@ -1571,7 +1890,6 @@
           name: '',
           courseId: courses[0]?.id || '',
           dueDate: '',
-          employeeTypes: [],
           designationKeyword: '',
           departmentKeyword: '',
           businessLines: [],
@@ -1609,17 +1927,9 @@
               <h2 className="display-font text-2xl font-800 text-ink">Profile-Based Assignment Rule</h2>
               <p className="mt-2 text-sm text-slatey">Rules automatically assign matching learners and also apply to future HR-created employees.</p>
               <div className="mt-6 grid gap-4">
-                <TextInput label="Rule Name" value={rule.name} onChange={(value) => setRule((prev) => ({ ...prev, name: value }))} placeholder="e.g. White-collar induction" />
+                <TextInput label="Rule Name" value={rule.name} onChange={(value) => setRule((prev) => ({ ...prev, name: value }))} placeholder="e.g. Operations induction" />
                 <SelectInput label="Target Course" value={rule.courseId} onChange={(value) => setRule((prev) => ({ ...prev, courseId: value }))} options={[{ value: '', label: 'Select course' }, ...courses.map((course) => ({ value: course.id, label: course.title }))]} />
                 <TextInput label="Default Due Date" value={rule.dueDate} onChange={(value) => setRule((prev) => ({ ...prev, dueDate: value }))} type="date" />
-                <div>
-                  <div className="mb-2 text-sm font-semibold text-slate-700">Employee Type Match</div>
-                  <div className="flex flex-wrap gap-2">
-                    {EMPLOYEE_TYPES.map((type) => (
-                      <CheckboxPill key={type} checked={rule.employeeTypes.includes(type)} onChange={() => toggleRuleValue('employeeTypes', type)} label={type} />
-                    ))}
-                  </div>
-                </div>
                 <TextInput label="Designation Contains" value={rule.designationKeyword} onChange={(value) => setRule((prev) => ({ ...prev, designationKeyword: value }))} placeholder="e.g. engineer" />
                 <TextInput label="Department Contains" value={rule.departmentKeyword} onChange={(value) => setRule((prev) => ({ ...prev, departmentKeyword: value }))} placeholder="e.g. operations" />
                 <div>
@@ -1693,7 +2003,6 @@
                         <Button variant="soft" tone="danger" onClick={() => removeRule(item.id)}>Delete</Button>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {(item.employeeTypes || []).map((type) => <Tag key={type} tone="blue">{type}</Tag>)}
                         {(item.businessLines || []).map((line) => <Tag key={line} tone="teal">{line}</Tag>)}
                         {item.designationKeyword && <Tag tone="slate">Designation: {item.designationKeyword}</Tag>}
                         {item.departmentKeyword && <Tag tone="slate">Department: {item.departmentKeyword}</Tag>}
@@ -1935,8 +2244,36 @@
       const hrUsers = users.filter((user) => user.role === 'hr');
       const essential = courses.filter((course) => course.type === 'Essential').length;
       const desirable = courses.filter((course) => course.type === 'Desirable').length;
+      const behavioral = courses.filter((course) => course.trainingType === 'Behavioral').length;
+      const functional = courses.filter((course) => course.trainingType === 'Functional').length;
       const moduleCount = modules.length;
       const completionCount = certificates.length;
+
+      const userByEmail = (email) => users.find((user) => user.email === email);
+      const courseById = (id) => courses.find((course) => course.id === id);
+      const recentAssignments = [...assignments]
+        .sort((a, b) => (b.assignedAt || 0) - (a.assignedAt || 0))
+        .slice(0, 4)
+        .map((item) => ({
+          key: `assign-${item.id}`,
+          tone: 'assign',
+          headline: `${userByEmail(item.email)?.name || item.email} assigned to ${courseById(item.courseId)?.title || 'a course'}`,
+          subline: item.source || 'Manual assignment',
+          timestamp: item.assignedAt,
+        }));
+      const recentCertificates = [...certificates]
+        .sort((a, b) => (b.issuedAt || 0) - (a.issuedAt || 0))
+        .slice(0, 4)
+        .map((item) => ({
+          key: `cert-${item.id}`,
+          tone: 'cert',
+          headline: `${item.learnerName} earned ${item.badgeTitle}`,
+          subline: courseById(item.courseId)?.title || item.courseTitle,
+          timestamp: item.issuedAt,
+        }));
+      const activityFeed = [...recentCertificates, ...recentAssignments]
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, 6);
 
       return (
         <div className="space-y-6">
@@ -1951,9 +2288,9 @@
             <StatCard label="Active Assignments" value={assignments.length} tone="amber" />
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Courses" value={courses.length} />
-            <StatCard label="Essential Courses" value={essential} tone="amber" />
-            <StatCard label="Desirable Courses" value={desirable} tone="teal" />
+            <StatCard label="Total Courses" value={courses.length} />
+            <StatCard label="Essential / Desirable" value={`${essential} / ${desirable}`} tone="amber" hint="Course requirement" />
+            <StatCard label="Behavioral / Functional" value={`${behavioral} / ${functional}`} tone="teal" hint="Training type" />
             <StatCard label="Modules / Assets" value={moduleCount} tone="slate" />
           </div>
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -2016,20 +2353,32 @@
                 </div>
               </Panel>
 
-              <Panel className="p-6">
-                <h2 className="display-font text-2xl font-800 text-ink">Prototype Flow</h2>
-                <div className="mt-5 space-y-4">
-                  {[
-                    'Create an employee account from the login page with a company email.',
-                    'Admin assigns courses manually or through profile rules.',
-                    'Learner logs in, completes modules, and takes quizzes.',
-                    'Badge and certificate are issued automatically on completion.',
-                  ].map((step, index) => (
-                    <div key={step} className="flex gap-4">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">{index + 1}</div>
-                      <p className="pt-1 text-sm leading-6 text-slate-600">{step}</p>
+              <Panel className="overflow-hidden">
+                <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+                  <h2 className="display-font text-2xl font-800 text-ink">Recent Activity</h2>
+                  <Tag tone="blue">Live</Tag>
+                </div>
+                <div className="px-6 py-5">
+                  {activityFeed.length === 0 ? (
+                    <div className="rounded-[22px] bg-slate-50 p-5 text-sm text-slatey">
+                      No assignments or completions yet. Activity will appear here as learners progress.
                     </div>
-                  ))}
+                  ) : (
+                    <ul className="space-y-3">
+                      {activityFeed.map((item) => (
+                        <li key={item.key} className="flex gap-3 rounded-[22px] bg-slate-50 p-4">
+                          <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${item.tone === 'cert' ? 'bg-emerald-500' : 'bg-blue-500'}`}>
+                            {item.tone === 'cert' ? '★' : '➜'}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-ink">{item.headline}</div>
+                            <div className="mt-0.5 truncate text-xs text-slate-500">{item.subline}</div>
+                            <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">{fmtDateTime(item.timestamp)}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </Panel>
             </div>
@@ -2205,16 +2554,26 @@
       );
     };
 
-    const CourseDetailContent = ({ user, course, modules, quizzes, assignments, progress, setProgress, quizAttempts, setQuizAttempts }) => {
-      const visibleModules = getVisibleModulesForUser(modules, course.id, user);
-      const [openQuiz, setOpenQuiz] = useState(null);
-      const moduleQuizFor = (moduleId) => quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === moduleId);
-      const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
-      const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
+    const ModuleSummary = ({ module }) => {
+      const summary = clean(module.description, 320) || (module.notes ? clean(module.notes, 320) : '');
+      if (!summary) return null;
+      return (
+        <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-blue-50/70 via-white to-teal-50/60 p-6 shadow-soft">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.28em] text-brand">
+            <span className="inline-block h-1.5 w-6 rounded-full bg-brand" />
+            Quick Summary
+          </div>
+          <p className="mt-3 text-base leading-7 text-slate-700">{summary}</p>
+        </div>
+      );
+    };
 
-      const completeModule = (module) => {
-        const exists = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
-        if (exists) return;
+    const ModuleLearningCard = ({ module, course, index, total, user, progress, setProgress, quizzes, quizAttempts, setOpenQuiz }) => {
+      const done = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+      const moduleQuiz = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
+      const moduleQuizPassed = moduleQuiz ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id) : true;
+      const completeModule = () => {
+        if (done) return;
         setProgress([
           ...progress,
           {
@@ -2226,134 +2585,211 @@
           },
         ]);
       };
+      return (
+        <article className="module-card">
+          <Reveal>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] font-bold uppercase tracking-[0.32em] text-slate-400">
+              <span>Module {module.order || index + 1} of {total}</span>
+              <span className="flex items-center gap-2">
+                {done ? <Tag tone="green">Completed</Tag> : <Tag tone="slate">In Progress</Tag>}
+                {moduleQuiz && <Tag tone={moduleQuizPassed ? 'green' : 'amber'}>{moduleQuizPassed ? 'Quiz Passed' : 'Quiz Pending'}</Tag>}
+              </span>
+            </div>
+          </Reveal>
+
+          {module.videoUrl ? (
+            <Reveal delay={80} className="mt-4">
+              <VideoFrame url={module.videoUrl} title={module.title} />
+            </Reveal>
+          ) : (
+            <Reveal delay={80} className="mt-4">
+              <div className="flex h-56 items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-400">
+                No video added for this module
+              </div>
+            </Reveal>
+          )}
+
+          <Reveal delay={140} className="mt-5">
+            <ModuleSummary module={module} />
+          </Reveal>
+
+          <Reveal delay={200} className="mt-8">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-tealish">Module</div>
+              <h3 className="display-font mt-2 text-3xl font-800 leading-tight text-ink md:text-4xl">{module.title}</h3>
+              {module.description && (
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-slatey">{module.description}</p>
+              )}
+            </div>
+          </Reveal>
+
+          {module.notes && (
+            <Reveal delay={260} className="mt-6">
+              <div className="notes-card relative overflow-hidden rounded-[28px] border border-slate-100 bg-gradient-to-r from-blue-50/80 via-white to-teal-50/80 p-6 shadow-soft md:p-8">
+                <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-brand/10 blur-3xl" />
+                <div className="absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-tealish/15 blur-3xl" />
+                <div className="relative flex flex-col gap-6 md:flex-row md:items-start">
+                  <div className="md:w-[260px] md:shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.32em] text-brand">
+                      <span className="inline-block h-1.5 w-6 rounded-full bg-brand" />
+                      Notes
+                    </div>
+                    <h4 className="display-font mt-3 text-2xl font-800 leading-tight text-ink">Key Content</h4>
+                    <p className="mt-2 text-sm text-slatey">Read carefully — this is the core learning material for this module.</p>
+                  </div>
+                  <div className="flex-1 md:border-l md:border-slate-200 md:pl-8">
+                    <div className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700">{module.notes}</div>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+          )}
+
+          {(module.images || []).length > 0 && (
+            <Reveal delay={320} className="mt-8">
+              <div>
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-amberish">Visual Walkthrough</div>
+                    <h4 className="display-font mt-1 text-2xl font-800 text-ink">Reference Images</h4>
+                  </div>
+                  <Tag tone="amber">{module.images.length} {module.images.length === 1 ? 'Image' : 'Images'}</Tag>
+                </div>
+                <ImageCarousel images={module.images} />
+              </div>
+            </Reveal>
+          )}
+
+          {(module.documents || []).length > 0 && (
+            <Reveal delay={360} className="mt-6">
+              <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-soft">
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">Downloads</div>
+                <div className="flex flex-wrap gap-3">
+                  {module.documents.map((file) => (
+                    <a key={file.id} href={file.dataUrl} download={file.name} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-soft">
+                      <span aria-hidden="true">↓</span>{file.name}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </Reveal>
+          )}
+
+          <Reveal delay={420} className="mt-8">
+            <div className="rounded-[24px] border border-slate-100 bg-gradient-to-r from-slate-900 via-brandDark to-brand p-6 text-white shadow-float">
+              <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-white/60">Next Step</div>
+                  <h4 className="display-font mt-2 text-2xl font-800 leading-tight">
+                    {moduleQuiz ? (moduleQuizPassed ? 'You passed this module quiz' : 'Take the module quiz to continue') : (done ? 'Module completed' : 'Mark this module complete to keep moving')}
+                  </h4>
+                  <p className="mt-2 max-w-xl text-sm text-white/70">
+                    {moduleQuiz
+                      ? `Pass mark ${moduleQuiz.passMark}% • ${moduleQuiz.questions.length} questions`
+                      : 'Once complete, the next module will appear below.'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {!done && (
+                    <button
+                      type="button"
+                      onClick={completeModule}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-brand shadow-soft transition hover:-translate-y-0.5"
+                    >
+                      Mark Complete
+                    </button>
+                  )}
+                  {moduleQuiz && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenQuiz(moduleQuiz)}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/20"
+                    >
+                      {moduleQuizPassed ? 'Review Quiz' : 'Take Module Quiz'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Reveal>
+        </article>
+      );
+    };
+
+    const CourseDetailContent = ({ user, course, modules, quizzes, assignments, progress, setProgress, quizAttempts, setQuizAttempts }) => {
+      const visibleModules = getVisibleModulesForUser(modules, course.id, user);
+      const [openQuiz, setOpenQuiz] = useState(null);
+      const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
+      const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
 
       return (
         <>
-          <div className="space-y-6">
-              <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
+          <div className="space-y-8">
+            <Reveal>
+              <div className="relative overflow-hidden rounded-[28px] border border-slate-100 bg-gradient-to-br from-white via-slate-50 to-blue-50 p-6 shadow-soft md:p-8">
+                <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/10 blur-3xl" />
+                <div className="absolute -left-12 -bottom-12 h-40 w-40 rounded-full bg-tealish/15 blur-3xl" />
+                <div className="relative flex flex-wrap items-end justify-between gap-6">
+                  <div className="max-w-3xl">
                     <div className="flex flex-wrap gap-2">
                       <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
                       <Tag tone="blue">{course.trainingType}</Tag>
                       <Tag tone="slate">{course.focusArea}</Tag>
                     </div>
-                    <p className="mt-4 text-sm leading-7 text-slatey">{course.description || 'No course description added yet.'}</p>
+                    <p className="mt-5 text-base leading-7 text-slate-600">{course.description || 'No course description added yet.'}</p>
+                    <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      <span>{visibleModules.length} {visibleModules.length === 1 ? 'Module' : 'Modules'}</span>
+                      <span>•</span>
+                      <span>{status.completedModules} Completed</span>
+                      {courseQuiz && <><span>•</span><span>Course Quiz {status.courseQuizPassed ? 'Passed' : 'Pending'}</span></>}
+                    </div>
                   </div>
                   <div className="min-w-[180px] rounded-[24px] bg-white p-5 shadow-soft">
-                    <div className="text-sm font-semibold text-slate-500">Completion</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Completion</div>
                     <div className="display-font mt-2 text-4xl font-800 text-ink">{status.progressPct}%</div>
                     <div className="mt-3"><ProgressBar value={status.progressPct} /></div>
                   </div>
                 </div>
               </div>
+            </Reveal>
 
-              <div>
-                <h3 className="display-font text-2xl font-800 text-ink">Modules</h3>
-                <div className="mt-4 space-y-4">
-                  {visibleModules.length === 0 ? (
-                    <EmptyState title="No visible modules" text="No module has been targeted to this learner profile yet." />
-                  ) : visibleModules.map((module) => {
-                    const done = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
-                    const moduleQuiz = moduleQuizFor(module.id);
-                    const moduleQuizPassed = moduleQuiz ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id) : true;
-                    return (
-                      <div key={module.id} className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-soft">
-                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                          <div className="max-w-4xl">
-                            <div className="mb-3 flex flex-wrap gap-2">
-                              <Tag tone="blue">Module {module.order}</Tag>
-                              {done ? <Tag tone="green">Completed</Tag> : <Tag tone="slate">Pending</Tag>}
-                              {moduleQuiz && <Tag tone={moduleQuizPassed ? 'green' : 'amber'}>{moduleQuizPassed ? 'Quiz Passed' : 'Quiz Pending'}</Tag>}
-                            </div>
-                            <h4 className="display-font text-xl font-800 text-ink">{module.title}</h4>
-                            <p className="mt-2 text-sm leading-6 text-slatey">{module.description || 'No description provided.'}</p>
-                          </div>
-                          <div className="flex flex-wrap gap-3">
-                            {!done && <Button variant="soft" onClick={() => completeModule(module)}>Mark Complete</Button>}
-                            {moduleQuiz && <Button tone="secondary" onClick={() => setOpenQuiz(moduleQuiz)}>{moduleQuizPassed ? 'View Quiz' : 'Take Quiz'}</Button>}
-                          </div>
-                        </div>
+            <div className="module-flow space-y-0">
+              {visibleModules.length === 0 ? (
+                <EmptyState title="No visible modules" text="No module has been targeted to this learner profile yet." />
+              ) : visibleModules.map((module, index) => (
+                <ModuleLearningCard
+                  key={module.id}
+                  module={module}
+                  course={course}
+                  index={index}
+                  total={visibleModules.length}
+                  user={user}
+                  progress={progress}
+                  setProgress={setProgress}
+                  quizzes={quizzes}
+                  quizAttempts={quizAttempts}
+                  setOpenQuiz={setOpenQuiz}
+                />
+              ))}
+            </div>
 
-                        {module.videoUrl && (
-                          <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200">
-                            <div className="aspect-video w-full bg-slate-950">
-                              {isDirectVideoFile(module.videoUrl) ? (
-                                <video src={module.videoUrl} className="h-full w-full" controls preload="metadata" />
-                              ) : (
-                                <iframe src={getEmbeddableVideoUrl(module.videoUrl)} title={module.title} className="h-full w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
-                              )}
-                            </div>
-                            {!isDirectVideoFile(module.videoUrl) && getEmbeddableVideoUrl(module.videoUrl) === module.videoUrl && !module.videoUrl.includes('/embed/') && (
-                              <div className="border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
-                                If this video does not preview, use an embeddable video link or direct video file.
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="mt-5 grid gap-5 lg:grid-cols-2">
-                          <div className="rounded-[22px] bg-slate-50 p-4">
-                            <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Transcript</div>
-                            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">{module.transcript || 'No transcript available.'}</div>
-                          </div>
-                          <div className="rounded-[22px] bg-blue-50 p-4">
-                            <div className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-blue-400">Notes / Guidance</div>
-                            <div className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{module.notes || 'No notes available.'}</div>
-                          </div>
-                        </div>
-
-                        {(module.documents || []).length > 0 && (
-                          <div className="mt-5">
-                            <div className="mb-3 text-sm font-semibold text-slate-700">Documents</div>
-                            <div className="flex flex-wrap gap-3">
-                              {module.documents.map((file) => (
-                                <a key={file.id} href={file.dataUrl} download={file.name} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                                  {file.name}
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {(module.images || []).length > 0 && (
-                          <div className="mt-5">
-                            <div className="mb-3 text-sm font-semibold text-slate-700">Pictures / Images</div>
-                            <div className="overflow-x-auto">
-                              <div className="flex gap-4 pb-2">
-                              {module.images.map((file) => (
-                                <div key={file.id} className="min-w-[260px] overflow-hidden rounded-[22px] border border-slate-100 bg-slate-50">
-                                  <img src={file.dataUrl} alt={file.label || file.name} className="h-40 w-full object-cover" />
-                                  <div className="px-4 py-3">
-                                    <div className="text-sm font-semibold text-slate-700">{file.label || file.name}</div>
-                                    <div className="mt-1 text-xs text-slate-400">{file.name}</div>
-                                  </div>
-                                </div>
-                              ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-6">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <Reveal>
+              <div className="rounded-[28px] border border-slate-100 bg-gradient-to-br from-amber-50 via-white to-teal-50 p-6 shadow-soft md:p-8">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h3 className="display-font text-2xl font-800 text-ink">Course Quiz</h3>
-                    <p className="mt-2 text-sm text-slatey">Complete the course quiz to finalize training clearance where applicable.</p>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-amberish">Final Step</div>
+                    <h3 className="display-font mt-2 text-2xl font-800 text-ink md:text-3xl">Course Quiz</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">Complete the course quiz to finalize training clearance and unlock your certificate.</p>
                   </div>
                   {courseQuiz ? (
-                    <Button tone="secondary" onClick={() => setOpenQuiz(courseQuiz)}>
-                      {status.courseQuizPassed ? 'View Course Quiz' : 'Take Course Quiz'}
+                    <Button tone="accent" onClick={() => setOpenQuiz(courseQuiz)}>
+                      {status.courseQuizPassed ? 'Review Course Quiz' : 'Take Course Quiz'}
                     </Button>
                   ) : <Tag tone="green">No course quiz required</Tag>}
                 </div>
               </div>
-            </div>
+            </Reveal>
+          </div>
           {openQuiz && <QuizPlayer user={user} quiz={openQuiz} quizAttempts={quizAttempts} setQuizAttempts={setQuizAttempts} onClose={() => setOpenQuiz(null)} />}
         </>
       );
@@ -2503,6 +2939,7 @@
     };
 
     const LearnerCourses = ({ user, courses, assignments, modules, quizzes, progress, quizAttempts, onOpenCourse }) => {
+      const [activeTab, setActiveTab] = useState('all');
       const myAssignments = assignments.filter((item) => item.email === user.email);
       const cards = myAssignments.map((assignment) => {
         const course = courses.find((item) => item.id === assignment.courseId);
@@ -2510,15 +2947,61 @@
         return { assignment, course, status: courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts }) };
       }).filter(Boolean);
 
+      const tabs = [
+        { id: 'all', label: 'All Courses', match: () => true, tone: 'slate' },
+        { id: 'essential', label: 'Essential', match: ({ course }) => course.type === 'Essential', tone: 'amber' },
+        { id: 'desirable', label: 'Desirable', match: ({ course }) => course.type === 'Desirable', tone: 'teal' },
+        { id: 'behavioral', label: 'Behavioral', match: ({ course }) => course.trainingType === 'Behavioral', tone: 'blue' },
+        { id: 'functional', label: 'Functional', match: ({ course }) => course.trainingType === 'Functional', tone: 'violet' },
+      ];
+
+      const tabCounts = tabs.reduce((acc, tab) => { acc[tab.id] = cards.filter(tab.match).length; return acc; }, {});
+      const activeMatch = tabs.find((tab) => tab.id === activeTab) || tabs[0];
+      const filteredCards = cards.filter(activeMatch.match);
+
       return (
         <div className="space-y-6">
           <SectionTitle title="My Courses" subtitle="Assigned learning, grouped by requirement type, with module completion and quiz visibility." />
+
+          {cards.length > 0 && (
+            <Panel className="p-3">
+              <div className="flex flex-wrap gap-2">
+                {tabs.map((tab) => {
+                  const isActive = tab.id === activeTab;
+                  const toneStyles = {
+                    slate: isActive ? 'bg-slate-900 text-white shadow-soft' : 'text-slate-600 hover:bg-slate-50',
+                    amber: isActive ? 'bg-amberish text-white shadow-soft' : 'text-amberish hover:bg-amber-50',
+                    teal: isActive ? 'bg-tealish text-white shadow-soft' : 'text-tealish hover:bg-teal-50',
+                    blue: isActive ? 'bg-brand text-white shadow-soft' : 'text-brand hover:bg-blue-50',
+                    violet: isActive ? 'bg-violet-600 text-white shadow-soft' : 'text-violet-700 hover:bg-violet-50',
+                  };
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`tab-pill flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold ${toneStyles[tab.tone]}`}
+                    >
+                      <span>{tab.label}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        {tabCounts[tab.id]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Panel>
+          )}
+
           {cards.length === 0 ? (
             <EmptyState title="No assigned courses" text="Your assigned learning will appear here once admin creates an assignment." />
+          ) : filteredCards.length === 0 ? (
+            <EmptyState title={`No ${activeMatch.label.toLowerCase()} yet`} text="Switch tabs to see other course categories assigned to you." />
           ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {cards.map(({ assignment, course, status }) => (
-                <Panel key={assignment.id} className="p-6">
+              {filteredCards.map(({ assignment, course, status }) => (
+                <Panel key={assignment.id} className="group relative overflow-hidden p-6 transition hover:-translate-y-0.5 hover:shadow-float">
+                  <div className={`absolute inset-x-0 top-0 h-1 ${course.type === 'Essential' ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`} />
                   <div className="flex flex-wrap gap-2">
                     <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
                     <Tag tone="blue">{course.trainingType}</Tag>
@@ -2697,12 +3180,6 @@
               <div className="rounded-[22px] bg-slate-50 p-5"><div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Department</div><div className="mt-2 text-lg font-semibold text-ink">{user.department || '—'}</div></div>
               <div className="rounded-[22px] bg-slate-50 p-5"><div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Business Line</div><div className="mt-2 text-lg font-semibold text-ink">{businessLineLabel(user)}</div></div>
             </div>
-            <div className="mt-5 rounded-[22px] bg-slate-50 p-5">
-              <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Employee Type</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(user.employeeTypes || []).length ? user.employeeTypes.map((type) => <Tag key={type} tone="blue">{type}</Tag>) : <Tag tone="slate">Not set</Tag>}
-              </div>
-            </div>
           </Panel>
         </div>
       </div>
@@ -2712,17 +3189,20 @@
       const searchParams = new URLSearchParams(window.location.search);
       const standaloneCourseId = searchParams.get('courseView') === '1' ? searchParams.get('courseId') : '';
       const [sessionEmail, setSessionEmail] = useState(() => readSession());
-      const [users, setUsers] = usePersistentState('users', []);
-      const [courses, setCourses] = usePersistentState('courses', []);
-      const [modules, setModules] = usePersistentState('modules', []);
-      const [assignments, setAssignments] = usePersistentState('assignments', []);
-      const [assignmentRules, setAssignmentRules] = usePersistentState('assignment_rules', []);
-      const [quizzes, setQuizzes] = usePersistentState('quizzes', []);
-      const [progress, setProgress] = usePersistentState('progress', []);
-      const [quizAttempts, setQuizAttempts] = usePersistentState('quiz_attempts', []);
-      const [certificates, setCertificates] = usePersistentState('certificates', []);
+      const [users, setUsers, usersState] = useSupabaseCollection('users', []);
+      const [courses, setCourses, coursesState] = useSupabaseCollection('courses', []);
+      const [modules, setModules, modulesState] = useSupabaseCollection('modules', []);
+      const [assignments, setAssignments, assignmentsState] = useSupabaseCollection('assignments', []);
+      const [assignmentRules, setAssignmentRules, assignmentRulesState] = useSupabaseCollection('assignment_rules', []);
+      const [quizzes, setQuizzes, quizzesState] = useSupabaseCollection('quizzes', []);
+      const [progress, setProgress, progressState] = useSupabaseCollection('progress', []);
+      const [quizAttempts, setQuizAttempts, quizAttemptsState] = useSupabaseCollection('quiz_attempts', []);
+      const [certificates, setCertificates, certificatesState] = useSupabaseCollection('certificates', []);
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
+      const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
+      const dataLoading = dataStates.some((state) => state.loading);
+      const dataError = dataStates.map((state) => state.error).find(Boolean);
 
       useEffect(() => {
         const timer = setInterval(() => {
@@ -2749,7 +3229,6 @@
               department: 'Learning & Development',
               businessLine: BUSINESS_LINES[0],
               businessLineOther: '',
-              employeeTypes: ['White-collar'],
               role: 'superadmin',
               createdAt: Date.now(),
               createdBy: 'system',
@@ -2805,9 +3284,6 @@
         if (!EMAIL_RE.test(email)) {
           return { ok: false, message: 'Employee email must use the @equipment.ae company format.' };
         }
-        if ((form.employeeTypes || []).length === 0) {
-          return { ok: false, message: 'Select at least one employee type.' };
-        }
         if (form.businessLine === 'Other' && !clean(form.businessLineOther, 120)) {
           return { ok: false, message: 'Enter the business line name when selecting Other.' };
         }
@@ -2824,7 +3300,6 @@
           department: clean(form.department, 120),
           businessLine: form.businessLine,
           businessLineOther: form.businessLine === 'Other' ? clean(form.businessLineOther, 120) : '',
-          employeeTypes: form.employeeTypes,
           role: 'learner',
           createdAt: Date.now(),
           createdBy: 'login-page',
@@ -2857,6 +3332,23 @@
         setSessionEmail(null);
         setView('dashboard');
       };
+
+      if (dataLoading) {
+        return <LoadingScreen />;
+      }
+
+      if (dataError) {
+        return (
+          <div className="page-shell flex min-h-screen items-center justify-center px-4">
+            <Panel className="max-w-xl p-8">
+              <Logo className="h-12" />
+              <h1 className="display-font mt-6 text-2xl font-800 text-ink">Supabase data connection failed</h1>
+              <p className="mt-3 text-sm leading-6 text-slatey">{dataError}</p>
+              <p className="mt-4 text-sm text-slate-500">Check the Vercel environment variables and confirm the Supabase schema has been created.</p>
+            </Panel>
+          </div>
+        );
+      }
 
       if (!sessionEmail) {
         return <LoginPage onLogin={login} onCreateAccount={createAccount} />;
