@@ -113,20 +113,8 @@ The localStorage keys migrated are:
 - `alshirawi_lms_v2_quiz_attempts`
 - `alshirawi_lms_v2_certificates`
 
-## Privacy and GitHub Protection
 
-The repository does not include a production user database.
 
-Do not commit:
-
-- Exported localStorage data
-- Employee data exports
-- Screenshots containing employee records
-- Database files
-- Manually downloaded user records
-- Any confidential company training data
-
-The `.gitignore` file includes common patterns for local database/export files.
 
 ## Files
 
@@ -184,3 +172,6 @@ Before production release, the following should be completed:
 ## Important Note
 
 This repository is a frontend prototype only. It demonstrates how the LMS can look and behave, but it should not be used as the final production system without backend, database, authentication, hosting, and security upgrades.
+## LMS WORKFLOW
+<img width="1056" height="571" alt="Screenshot 2026-04-23 at 2 36 50 PM" src="https://github.com/user-attachments/assets/2d1c5f41-1722-4643-b4df-c8aad0ee2709" />
+
