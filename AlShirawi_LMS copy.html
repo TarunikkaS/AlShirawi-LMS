@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Al Shirawi LMS</title>
+  <title>Al Shirawi Equipment Co LMS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -154,6 +154,61 @@
     }
     .module-flow .module-card:first-child::before {
       display: none;
+    }
+
+    .celebrate-card {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      background: linear-gradient(135deg, #ecfdf5 0%, #fef3c7 50%, #fce7f3 100%);
+      animation: celebratePop 0.5s cubic-bezier(0.18, 1.2, 0.4, 1.05) both;
+    }
+    @keyframes celebratePop {
+      0% { transform: scale(0.85); opacity: 0; }
+      60% { transform: scale(1.04); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .celebrate-title {
+      background: linear-gradient(90deg, #db2777, #f59e0b, #10b981, #2563eb);
+      background-size: 250% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: celebrateShine 3s ease-in-out infinite;
+      letter-spacing: 0.04em;
+    }
+    @keyframes celebrateShine {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    .celebrate-emoji {
+      display: inline-block;
+      animation: celebrateBounce 1.4s ease-in-out infinite;
+    }
+    .celebrate-emoji.delay-1 { animation-delay: 0.15s; }
+    .celebrate-emoji.delay-2 { animation-delay: 0.3s; }
+    @keyframes celebrateBounce {
+      0%, 100% { transform: translateY(0) rotate(-6deg); }
+      50% { transform: translateY(-14px) rotate(8deg); }
+    }
+    .confetti-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .confetti-piece {
+      position: absolute;
+      top: -14px;
+      width: 10px;
+      height: 16px;
+      border-radius: 2px;
+      opacity: 0.9;
+      animation: confettiFall linear infinite;
+    }
+    @keyframes confettiFall {
+      0% { transform: translate3d(0, -20px, 0) rotate(0deg); }
+      100% { transform: translate3d(var(--drift, 0px), 520px, 0) rotate(720deg); }
     }
   </style>
 </head>
@@ -676,6 +731,7 @@
     const hasPassedQuiz = (quizAttempts, email, quizId) => getQuizAttemptsFor(quizAttempts, email, quizId).some((attempt) => attempt.passed);
     const isDirectVideoFile = (url) => /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url || '');
     const isDataVideo = (url) => /^data:video\//i.test(url || '');
+    const isUploadedVideoUrl = (url) => isDataVideo(url) || /\/storage\/v1\/object\/public\/module-videos\//i.test(url || '');
     const extractYouTubeId = (raw) => {
       try {
         const parsed = new URL(raw);
@@ -795,7 +851,7 @@
       doc.setTextColor(30, 58, 138);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
-      doc.text('AL SHIRAWI LMS', 421, 88, { align: 'center' });
+      doc.text('AL SHIRAWI EQUIPMENT CO LMS', 421, 88, { align: 'center' });
       doc.setFontSize(34);
       doc.text('Certificate of Completion', 421, 160, { align: 'center' });
       doc.setTextColor(71, 85, 105);
@@ -974,7 +1030,7 @@
               <Logo className="h-8 w-auto" />
             </div>
             <div>
-              <div className="display-font text-lg font-800 text-ink">Al Shirawi LMS</div>
+              <div className="display-font text-lg font-800 text-ink">Al Shirawi Equipment Co LMS</div>
               <div className="text-xs font-medium uppercase tracking-[0.22em] text-slate-400">Learning Management System</div>
             </div>
           </div>
@@ -1514,7 +1570,10 @@
       const [form, setForm] = useState(blankForm);
       const [pendingDocs, setPendingDocs] = useState([]);
       const [pendingImages, setPendingImages] = useState([]);
+      const [videoUploadInfo, setVideoUploadInfo] = useState(null);
+      const [videoUploading, setVideoUploading] = useState(false);
       const imageInputRef = useRef(null);
+      const videoInputRef = useRef(null);
       const [error, setError] = useState('');
 
       useEffect(() => {
@@ -1545,6 +1604,7 @@
         });
         setPendingDocs([]);
         setPendingImages([]);
+        setVideoUploadInfo(null);
         setError('');
       };
 
@@ -1558,6 +1618,7 @@
         });
         setPendingDocs([]);
         setPendingImages([]);
+        setVideoUploadInfo(isUploadedVideoUrl(module.videoUrl) ? { name: 'Uploaded video file', size: 0 } : null);
         setError('');
       };
 
@@ -1577,6 +1638,64 @@
         setPendingImages((prev) => prev.map((entry) => entry.id === id ? { ...entry, label: value } : entry));
       };
 
+      const onVideoFileChange = async (files) => {
+        const file = (files || [])[0];
+        if (!file) return;
+        if (!/^video\//i.test(file.type) && !/\.(mp4|webm|ogg|mov|m4v)$/i.test(file.name)) {
+          setError('Please choose a valid video file (mp4, webm, mov, etc.).');
+          return;
+        }
+        if (file.size > 500 * 1024 * 1024) {
+          setError('Video file is too large. Please keep uploads under 500MB.');
+          return;
+        }
+        setError('');
+        setVideoUploading(true);
+        try {
+          const signResponse = await fetch('/api/video-upload', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-LMS-Session-Email': readSession() || '',
+            },
+            body: JSON.stringify({ fileName: file.name, fileType: file.type }),
+          });
+          if (!signResponse.ok) {
+            const details = await signResponse.json().catch(() => ({}));
+            throw new Error(details.error || `Could not start upload (${signResponse.status}).`);
+          }
+          const { uploadUrl, publicUrl } = await signResponse.json();
+          if (!uploadUrl || !publicUrl) {
+            throw new Error('Upload URL was not returned. Check the module-videos bucket.');
+          }
+          const uploadResponse = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': file.type || 'video/mp4',
+              'x-upsert': 'true',
+            },
+            body: file,
+          });
+          if (!uploadResponse.ok) {
+            const text = await uploadResponse.text();
+            throw new Error(text || `Upload failed (${uploadResponse.status}).`);
+          }
+          setForm((prev) => ({ ...prev, videoUrl: publicUrl }));
+          setVideoUploadInfo({ name: file.name, size: file.size });
+        } catch (err) {
+          setError(err.message || 'The video could not be uploaded.');
+        } finally {
+          setVideoUploading(false);
+          if (videoInputRef.current) videoInputRef.current.value = '';
+        }
+      };
+
+      const clearUploadedVideo = () => {
+        setVideoUploadInfo(null);
+        setForm((prev) => ({ ...prev, videoUrl: isUploadedVideoUrl(prev.videoUrl) ? '' : prev.videoUrl }));
+        if (videoInputRef.current) videoInputRef.current.value = '';
+      };
+
       const save = async () => {
         if (!form.courseId || !clean(form.title, 160)) {
           setError('Select a course and enter a module title.');
@@ -1591,7 +1710,7 @@
             title: clean(form.title, 160),
             description: clean(form.description, 700),
             order: Number(form.order) || 1,
-            videoUrl: clean(form.videoUrl, 400),
+            videoUrl: isUploadedVideoUrl(form.videoUrl) ? form.videoUrl : clean(form.videoUrl, 400),
             notes: clean(form.notes, 4000),
             applicability: {
               designationKeyword: clean(form.applicability.designationKeyword, 80),
@@ -1682,7 +1801,52 @@
                 <SelectInput label="Course" value={form.courseId} onChange={(value) => update('courseId', value)} options={courses.map((course) => ({ value: course.id, label: course.title }))} required />
                 <TextInput label="Module Title" value={form.title} onChange={(value) => update('title', value)} required />
                 <TextInput label="Display Order" value={String(form.order)} onChange={(value) => update('order', value)} type="number" />
-                <TextInput label="Video URL" value={form.videoUrl} onChange={(value) => update('videoUrl', value)} placeholder="YouTube / Vimeo / hosted video link" />
+                <TextInput
+                  label="Video URL"
+                  value={isUploadedVideoUrl(form.videoUrl) ? '' : form.videoUrl}
+                  onChange={(value) => { update('videoUrl', value); if (videoUploadInfo) setVideoUploadInfo(null); }}
+                  placeholder="YouTube / Vimeo / hosted video link"
+                  disabled={!!videoUploadInfo}
+                />
+              </div>
+              <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="display-font text-lg font-800 text-ink">Upload Video File</h3>
+                    <p className="mt-2 text-sm text-slatey">Upload an MP4 (or WebM / MOV) video file directly. Use this instead of the URL above when you have a local video.</p>
+                  </div>
+                  {videoUploadInfo && <Tag tone="green">Video uploaded</Tag>}
+                </div>
+                <label className={`mt-4 flex flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-sm font-semibold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50/40 ${videoUploading ? 'pointer-events-none opacity-70' : 'cursor-pointer'}`}>
+                  <span className="text-2xl">＋</span>
+                  <span>{videoUploading ? 'Uploading to secure storage…' : 'Click to choose an .mp4 video'}</span>
+                  <span className="text-xs font-normal text-slate-400">Up to 500 MB. Stored on Supabase Storage. Replaces any URL above.</span>
+                  <input
+                    ref={videoInputRef}
+                    type="file"
+                    accept="video/mp4,video/webm,video/ogg,video/quicktime,video/*"
+                    className="hidden"
+                    disabled={videoUploading}
+                    onChange={(e) => onVideoFileChange(e.target.files)}
+                  />
+                </label>
+                {videoUploadInfo && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 text-sm shadow-soft">
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-ink">{videoUploadInfo.name}</div>
+                      {videoUploadInfo.size > 0 && (
+                        <div className="text-xs text-slate-500">{(videoUploadInfo.size / (1024 * 1024)).toFixed(2)} MB</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearUploadedVideo}
+                      className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-100"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="mt-4 grid gap-4">
                 <TextArea label="Module Description" value={form.description} onChange={(value) => update('description', value)} rows={3} />
@@ -2466,6 +2630,57 @@
       );
     };
 
+    const CelebrationBurst = ({ score, passMark }) => {
+      const pieces = useMemo(() => {
+        const palette = ['#f43f5e', '#f59e0b', '#10b981', '#2563eb', '#a855f7', '#ec4899', '#facc15'];
+        return Array.from({ length: 36 }).map((_, index) => ({
+          id: index,
+          left: Math.random() * 100,
+          drift: (Math.random() * 160 - 80).toFixed(0) + 'px',
+          delay: (Math.random() * 1.5).toFixed(2),
+          duration: (1.8 + Math.random() * 1.6).toFixed(2),
+          color: palette[index % palette.length],
+          rotate: Math.floor(Math.random() * 360),
+        }));
+      }, []);
+      return (
+        <div className="celebrate-card rounded-[24px] border border-emerald-200 p-8 text-center shadow-float">
+          <div className="confetti-layer" aria-hidden="true">
+            {pieces.map((piece) => (
+              <span
+                key={piece.id}
+                className="confetti-piece"
+                style={{
+                  left: piece.left + '%',
+                  background: piece.color,
+                  '--drift': piece.drift,
+                  animationDelay: piece.delay + 's',
+                  animationDuration: piece.duration + 's',
+                  transform: `rotate(${piece.rotate}deg)`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="relative">
+            <div className="text-5xl md:text-6xl">
+              <span className="celebrate-emoji">🎉</span>
+              <span className="celebrate-emoji delay-1 mx-2">🥳</span>
+              <span className="celebrate-emoji delay-2">🎊</span>
+            </div>
+            <div className="display-font celebrate-title mt-5 text-3xl font-800 md:text-4xl">
+              GOOD JOB, KEEP ROCKING!
+            </div>
+            <p className="mt-3 text-sm font-semibold text-emerald-800">
+              You scored <span className="text-lg">{score}%</span> — well above the {passMark}% pass mark.
+            </p>
+            <p className="mt-1 text-xs uppercase tracking-[0.32em] text-emerald-700/80">
+              Quiz Passed
+            </p>
+          </div>
+        </div>
+      );
+    };
+
     const QuizPlayer = ({ user, quiz, quizAttempts, setQuizAttempts, onClose }) => {
       const [answers, setAnswers] = useState({});
       const [submitted, setSubmitted] = useState(false);
@@ -2521,10 +2736,15 @@
             </div>
           ) : submitted ? (
             <div className="space-y-4">
-              <div className={`rounded-[24px] p-6 text-center ${score >= quiz.passMark ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
-                <div className="display-font text-5xl font-800">{score}%</div>
-                <div className="mt-2 text-base font-semibold">{score >= quiz.passMark ? 'Passed' : 'Not Yet Passed'}</div>
-              </div>
+              {score >= quiz.passMark ? (
+                <CelebrationBurst score={score} passMark={quiz.passMark} />
+              ) : (
+                <div className="rounded-[24px] bg-red-50 p-6 text-center text-red-700">
+                  <div className="display-font text-5xl font-800">{score}%</div>
+                  <div className="mt-2 text-base font-semibold">Not Yet Passed</div>
+                  <div className="mt-1 text-xs uppercase tracking-[0.28em] text-red-600/80">Pass mark {quiz.passMark}%</div>
+                </div>
+              )}
               {quiz.questions.map((question, index) => (
                 <div key={question.id} className={`rounded-[24px] border p-5 ${answers[index] === question.answer ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
                   <div className="font-semibold text-ink">{question.text}</div>
@@ -2568,23 +2788,10 @@
       );
     };
 
-    const ModuleLearningCard = ({ module, course, index, total, user, progress, setProgress, quizzes, quizAttempts, setOpenQuiz }) => {
+    const ModuleLearningCard = ({ module, course, index, total, user, progress, quizzes, quizAttempts, setOpenQuiz }) => {
       const done = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
       const moduleQuiz = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
       const moduleQuizPassed = moduleQuiz ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id) : true;
-      const completeModule = () => {
-        if (done) return;
-        setProgress([
-          ...progress,
-          {
-            id: uid(),
-            email: user.email,
-            courseId: course.id,
-            moduleId: module.id,
-            completedAt: Date.now(),
-          },
-        ]);
-      };
       return (
         <article className="module-card">
           <Reveal>
@@ -2681,29 +2888,22 @@
                 <div>
                   <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-white/60">Next Step</div>
                   <h4 className="display-font mt-2 text-2xl font-800 leading-tight">
-                    {moduleQuiz ? (moduleQuizPassed ? 'You passed this module quiz' : 'Take the module quiz to continue') : (done ? 'Module completed' : 'Mark this module complete to keep moving')}
+                    {moduleQuiz
+                      ? (moduleQuizPassed ? 'You passed this module quiz' : 'Take the module quiz to complete this module')
+                      : (done ? 'Module completed' : 'No quiz here — module auto-completes as you progress')}
                   </h4>
                   <p className="mt-2 max-w-xl text-sm text-white/70">
                     {moduleQuiz
-                      ? `Pass mark ${moduleQuiz.passMark}% • ${moduleQuiz.questions.length} questions`
-                      : 'Once complete, the next module will appear below.'}
+                      ? `Pass the quiz to auto-complete this module. Pass mark ${moduleQuiz.passMark}% • ${moduleQuiz.questions.length} questions`
+                      : 'Modules without a quiz are completed automatically.'}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {!done && (
-                    <button
-                      type="button"
-                      onClick={completeModule}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-brand shadow-soft transition hover:-translate-y-0.5"
-                    >
-                      Mark Complete
-                    </button>
-                  )}
                   {moduleQuiz && (
                     <button
                       type="button"
                       onClick={() => setOpenQuiz(moduleQuiz)}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/20"
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-brand shadow-soft transition hover:-translate-y-0.5"
                     >
                       {moduleQuizPassed ? 'Review Quiz' : 'Take Module Quiz'}
                     </button>
@@ -2721,6 +2921,30 @@
       const [openQuiz, setOpenQuiz] = useState(null);
       const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
       const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
+
+      useEffect(() => {
+        if (!visibleModules.length) return;
+        const additions = [];
+        visibleModules.forEach((module) => {
+          const alreadyDone = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+          if (alreadyDone) return;
+          const moduleQuiz = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
+          const shouldComplete = moduleQuiz
+            ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id)
+            : true;
+          if (!shouldComplete) return;
+          additions.push({
+            id: uid(),
+            email: user.email,
+            courseId: course.id,
+            moduleId: module.id,
+            completedAt: Date.now(),
+          });
+        });
+        if (additions.length) {
+          setProgress([...progress, ...additions]);
+        }
+      }, [visibleModules.map((module) => module.id).join('|'), quizAttempts, progress.length]);
 
       return (
         <>
@@ -2765,7 +2989,6 @@
                   total={visibleModules.length}
                   user={user}
                   progress={progress}
-                  setProgress={setProgress}
                   quizzes={quizzes}
                   quizAttempts={quizAttempts}
                   setOpenQuiz={setOpenQuiz}
