@@ -2681,12 +2681,14 @@
       );
     };
 
-    const QuizPlayer = ({ user, quiz, quizAttempts, setQuizAttempts, onClose }) => {
+    const QuizPlayer = ({ user, quiz, quizAttempts, setQuizAttempts, onClose, course, modules, assignments, progress, quizzes }) => {
       const [answers, setAnswers] = useState({});
       const [submitted, setSubmitted] = useState(false);
       const [score, setScore] = useState(0);
+      const [completionMessage, setCompletionMessage] = useState(null);
       const attempts = quizAttempts.filter((item) => item.email === user.email && item.quizId === quiz.id);
-      const alreadyPassed = attempts.some((item) => item.passed);
+      const priorPass = attempts.some((item) => item.passed);
+      const alreadyPassed = priorPass && !submitted;
       const attemptsLeft = quiz.maxAttempts - attempts.length;
 
       const submit = () => {
@@ -2697,21 +2699,53 @@
         });
         const result = Math.round((correct / quiz.questions.length) * 100);
         const passed = result >= quiz.passMark;
+        const newAttempt = {
+          id: uid(),
+          email: user.email,
+          quizId: quiz.id,
+          scopeType: quiz.scopeType,
+          scopeId: quiz.scopeId,
+          score: result,
+          passed,
+          takenAt: Date.now(),
+        };
+
+        if (passed && course && Array.isArray(modules) && Array.isArray(assignments) && Array.isArray(progress) && Array.isArray(quizzes)) {
+          const nextAttempts = [...quizAttempts, newAttempt];
+          const nextProgress = [...progress];
+          const visibleModules = getVisibleModulesForUser(modules, course.id, user);
+          visibleModules.forEach((module) => {
+            const done = nextProgress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+            if (done) return;
+            const moduleQuiz = quizzes.find((quizItem) => quizItem.scopeType === 'module' && quizItem.scopeId === module.id);
+            const shouldComplete = moduleQuiz
+              ? hasPassedQuiz(nextAttempts, user.email, moduleQuiz.id)
+              : true;
+            if (shouldComplete) {
+              nextProgress.push({
+                id: uid(),
+                email: user.email,
+                courseId: course.id,
+                moduleId: module.id,
+                completedAt: Date.now(),
+              });
+            }
+          });
+          const projected = courseStatusForUser({ user, course, modules, assignments, progress: nextProgress, quizzes, quizAttempts: nextAttempts });
+          if (projected.completed) {
+            setCompletionMessage({ kind: 'course', courseTitle: course.title });
+          } else if (quiz.scopeType === 'module') {
+            const passedModule = visibleModules.find((module) => {
+              const moduleQuiz = quizzes.find((quizItem) => quizItem.scopeType === 'module' && quizItem.scopeId === module.id);
+              return moduleQuiz && moduleQuiz.id === quiz.id;
+            });
+            if (passedModule) setCompletionMessage({ kind: 'module', moduleTitle: passedModule.title });
+          }
+        }
+
         setScore(result);
         setSubmitted(true);
-        setQuizAttempts([
-          ...quizAttempts,
-          {
-            id: uid(),
-            email: user.email,
-            quizId: quiz.id,
-            scopeType: quiz.scopeType,
-            scopeId: quiz.scopeId,
-            score: result,
-            passed,
-            takenAt: Date.now(),
-          },
-        ]);
+        setQuizAttempts([...quizAttempts, newAttempt]);
       };
 
       return (
@@ -2726,18 +2760,33 @@
           }
           wide
         >
-          {alreadyPassed ? (
-            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-6 text-sm text-emerald-800">
-              You already passed this quiz. No further attempt is required.
-            </div>
-          ) : attemptsLeft <= 0 && !submitted ? (
-            <div className="rounded-[24px] border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-              Maximum attempts reached. Contact admin if you need a reset.
-            </div>
-          ) : submitted ? (
+          {submitted ? (
             <div className="space-y-4">
               {score >= quiz.passMark ? (
-                <CelebrationBurst score={score} passMark={quiz.passMark} />
+                <>
+                  <CelebrationBurst score={score} passMark={quiz.passMark} />
+                  {completionMessage && (
+                    <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-6 text-center shadow-soft">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-emerald-700">
+                        {completionMessage.kind === 'course' ? 'Course Completed' : 'Module Completed'}
+                      </div>
+                      <h4 className="display-font mt-2 text-2xl font-800 text-emerald-900">
+                        {completionMessage.kind === 'course'
+                          ? `You finished “${completionMessage.courseTitle}”`
+                          : `You finished “${completionMessage.moduleTitle}”`}
+                      </h4>
+                      {completionMessage.kind === 'course' ? (
+                        <p className="mt-3 text-sm leading-6 text-emerald-800">
+                          🎓 Your certificate has been generated and sent to <span className="font-semibold">{user.email}</span>. You can also download it from the Certificates &amp; Badges page.
+                        </p>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-emerald-800">
+                          This module is now marked complete. Move on to the next module to keep going.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="rounded-[24px] bg-red-50 p-6 text-center text-red-700">
                   <div className="display-font text-5xl font-800">{score}%</div>
@@ -2752,6 +2801,14 @@
                   {answers[index] !== question.answer && <div className="mt-2 text-sm">Correct answer: <span className="font-semibold">{question.options[question.answer]}</span></div>}
                 </div>
               ))}
+            </div>
+          ) : alreadyPassed ? (
+            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-6 text-sm text-emerald-800">
+              You already passed this quiz. No further attempt is required.
+            </div>
+          ) : attemptsLeft <= 0 ? (
+            <div className="rounded-[24px] border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+              Maximum attempts reached. Contact admin if you need a reset.
             </div>
           ) : (
             <div className="space-y-4">
@@ -2882,24 +2939,20 @@
             </Reveal>
           )}
 
-          <Reveal delay={420} className="mt-8">
-            <div className="rounded-[24px] border border-slate-100 bg-gradient-to-r from-slate-900 via-brandDark to-brand p-6 text-white shadow-float">
-              <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-white/60">Next Step</div>
-                  <h4 className="display-font mt-2 text-2xl font-800 leading-tight">
-                    {moduleQuiz
-                      ? (moduleQuizPassed ? 'You passed this module quiz' : 'Take the module quiz to complete this module')
-                      : (done ? 'Module completed' : 'No quiz here — module auto-completes as you progress')}
-                  </h4>
-                  <p className="mt-2 max-w-xl text-sm text-white/70">
-                    {moduleQuiz
-                      ? `Pass the quiz to auto-complete this module. Pass mark ${moduleQuiz.passMark}% • ${moduleQuiz.questions.length} questions`
-                      : 'Modules without a quiz are completed automatically.'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {moduleQuiz && (
+          {moduleQuiz && (
+            <Reveal delay={420} className="mt-8">
+              <div className="rounded-[24px] border border-slate-100 bg-gradient-to-r from-slate-900 via-brandDark to-brand p-6 text-white shadow-float">
+                <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-white/60">Next Step</div>
+                    <h4 className="display-font mt-2 text-2xl font-800 leading-tight">
+                      {moduleQuizPassed ? 'You passed this module quiz' : 'Take the module quiz to complete this module'}
+                    </h4>
+                    <p className="mt-2 max-w-xl text-sm text-white/70">
+                      Pass the quiz to complete this module. Pass mark {moduleQuiz.passMark}% • {moduleQuiz.questions.length} questions
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
                       onClick={() => setOpenQuiz(moduleQuiz)}
@@ -2907,11 +2960,11 @@
                     >
                       {moduleQuizPassed ? 'Review Quiz' : 'Take Module Quiz'}
                     </button>
-                  )}
+                  </div>
                 </div>
               </div>
-            </div>
-          </Reveal>
+            </Reveal>
+          )}
         </article>
       );
     };
@@ -3013,7 +3066,20 @@
               </div>
             </Reveal>
           </div>
-          {openQuiz && <QuizPlayer user={user} quiz={openQuiz} quizAttempts={quizAttempts} setQuizAttempts={setQuizAttempts} onClose={() => setOpenQuiz(null)} />}
+          {openQuiz && (
+            <QuizPlayer
+              user={user}
+              quiz={openQuiz}
+              quizAttempts={quizAttempts}
+              setQuizAttempts={setQuizAttempts}
+              onClose={() => setOpenQuiz(null)}
+              course={course}
+              modules={modules}
+              assignments={assignments}
+              progress={progress}
+              quizzes={quizzes}
+            />
+          )}
         </>
       );
     };
