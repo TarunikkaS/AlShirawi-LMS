@@ -66,7 +66,18 @@ SUPABASE_SERVICE_ROLE_KEY
 
 `SUPABASE_SERVICE_ROLE_KEY` must be set only on the server side in Vercel. Do not expose it in browser code.
 
-3. Deploy to Vercel. The root path `/` rewrites to `AlShirawi_LMS copy.html`.
+3. Create a Supabase Storage bucket for module videos:
+
+   - Open the Supabase dashboard for the project
+   - Storage → New bucket
+   - Name: `module-videos`
+   - Public bucket: enabled (so learners can stream videos without auth)
+   - File size limit: 500 MB (or whatever fits your plan)
+   - Allowed MIME types: `video/mp4`, `video/webm`, `video/ogg`, `video/quicktime` (optional, restricts uploads)
+
+   Uploads go through `/api/video-upload`, which uses `SUPABASE_SERVICE_ROLE_KEY` to mint a one-time signed upload URL. The browser then uploads the file directly to Supabase Storage and only the resulting public URL is saved on the module record.
+
+4. Deploy to Vercel. The root path `/` rewrites to `AlShirawi_LMS copy.html`.
 
 ## Main Features in This Prototype
 
