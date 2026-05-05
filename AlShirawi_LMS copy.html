@@ -798,6 +798,8 @@
           progressPct: 0,
           moduleQuizPassedCount: 0,
           moduleQuizCount: 0,
+          totalQuizCount: 0,
+          passedQuizCount: 0,
           courseQuizPassed: false,
           completed: false,
           pendingLabel: 'Not assigned',
@@ -809,14 +811,27 @@
       const visibleModules = getVisibleModulesForUser(modules, course.id, user);
       const completedModuleIds = progress.filter((entry) => entry.email === user.email && entry.courseId === course.id).map((entry) => entry.moduleId);
       const completedModules = visibleModules.filter((module) => completedModuleIds.includes(module.id)).length;
-      const progressPct = visibleModules.length ? Math.round((completedModules / visibleModules.length) * 100) : 100;
       const moduleQuizzes = quizzes.filter((quiz) => quiz.scopeType === 'module' && visibleModules.some((module) => module.id === quiz.scopeId));
       const moduleQuizPassedCount = moduleQuizzes.filter((quiz) => hasPassedQuiz(quizAttempts, user.email, quiz.id)).length;
       const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
-      const courseQuizPassed = courseQuiz ? hasPassedQuiz(quizAttempts, user.email, courseQuiz.id) : true;
-      const hasRequirement = visibleModules.length > 0 || moduleQuizzes.length > 0 || !!courseQuiz;
-      const completed = hasRequirement && progressPct === 100 && moduleQuizPassedCount === moduleQuizzes.length && courseQuizPassed;
-      const pendingLabel = completed ? 'Completed' : !hasRequirement ? 'Content pending' : progressPct === 100 ? 'Quiz pending' : 'In progress';
+      const courseQuizPassed = courseQuiz ? hasPassedQuiz(quizAttempts, user.email, courseQuiz.id) : false;
+
+      const totalQuizCount = moduleQuizzes.length + (courseQuiz ? 1 : 0);
+      const passedQuizCount = moduleQuizPassedCount + (courseQuiz && courseQuizPassed ? 1 : 0);
+      const progressPct = totalQuizCount > 0
+        ? Math.round((passedQuizCount / totalQuizCount) * 100)
+        : 0;
+
+      const hasRequirement = visibleModules.length > 0 || totalQuizCount > 0;
+      const completed = totalQuizCount > 0
+        && passedQuizCount === totalQuizCount;
+      const pendingLabel = completed
+        ? 'Completed'
+        : !hasRequirement
+          ? 'Content pending'
+          : totalQuizCount === 0
+            ? 'No quiz yet'
+            : 'In progress';
 
       return {
         assigned: true,
@@ -825,7 +840,9 @@
         progressPct,
         moduleQuizPassedCount,
         moduleQuizCount: moduleQuizzes.length,
-        courseQuizPassed,
+        totalQuizCount,
+        passedQuizCount,
+        courseQuizPassed: courseQuiz ? courseQuizPassed : true,
         completed,
         courseQuiz,
         visibleModules,
@@ -3017,7 +3034,7 @@
                     <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
                       <span>{visibleModules.length} {visibleModules.length === 1 ? 'Module' : 'Modules'}</span>
                       <span>•</span>
-                      <span>{status.completedModules} Completed</span>
+                      <span>{status.passedQuizCount}/{status.totalQuizCount} Quizzes Passed</span>
                       {courseQuiz && <><span>•</span><span>Course Quiz {status.courseQuizPassed ? 'Passed' : 'Pending'}</span></>}
                     </div>
                   </div>
