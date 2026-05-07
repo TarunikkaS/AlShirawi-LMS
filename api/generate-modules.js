@@ -7,7 +7,7 @@ const GEMINI_MODELS = [
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const buildPrompt = ({ courseTitle, courseDescription, courseType, trainingType, focusArea, numModules }) => `
-You are an expert instructional designer creating employee training content.
+You are an expert instructional designer creating professional employee training content.
 Generate exactly ${numModules} training modules for the following course.
 
 Course Title: ${courseTitle}
@@ -20,10 +20,10 @@ Return ONLY valid JSON with no markdown fences or extra text:
 {
   "modules": [
     {
-      "title": "Specific action-oriented title",
+      "title": "Specific action-oriented module title",
       "description": "One full paragraph (4-6 sentences) describing what this module covers, why it matters, and what the learner will achieve.",
-      "imageKeyword": "2-3 word phrase for a relevant stock photo (e.g. 'workplace safety equipment' or 'team communication meeting')",
-      "notes": "# Overview\\n\\nWrite 2-3 sentences introducing this module topic.\\n\\n# Key Concepts\\n\\n- **Concept name**: Clear explanation of this concept and why it matters.\\n- **Concept name**: Clear explanation of this concept and why it matters.\\n- **Concept name**: Clear explanation of this concept and why it matters.\\n\\n# Practical Application\\n\\nWrite 2-3 paragraphs describing how employees apply this in their day-to-day work. Include a real-world workplace scenario or example relevant to the course focus area.\\n\\n# Common Mistakes to Avoid\\n\\n- **Mistake**: Explain the mistake and its consequences.\\n- **Mistake**: Explain the mistake and its consequences.\\n- **Mistake**: Explain the mistake and its consequences.\\n\\n# Key Takeaways\\n\\n- First important point the learner should remember.\\n- Second important point the learner should remember.\\n- Third important point the learner should remember.",
+      "imageKeyword": "2-3 word phrase for a relevant stock photo (e.g. 'workplace safety equipment')",
+      "notes": "# 1. Module Overview\\n\\n[Write 100-150 words introducing this module: what it covers, why it matters to the employee, and how it connects to the course theme.]\\n\\n# 2. Learning Objectives\\n\\nBy the end of this module, learners will be able to:\\n\\n- **[Objective 1]**: [measurable outcome]\\n- **[Objective 2]**: [measurable outcome]\\n- **[Objective 3]**: [measurable outcome]\\n\\n# 3. Main Content\\n\\n## 3.1 Topic Introduction\\n\\n[2-3 paragraphs introducing the main topic, its background, and why it is relevant to this role or department.]\\n\\n## 3.2 [Key Concept 1 Name]\\n\\n[Detailed explanation of this concept — what it means, how it works, and why it matters in a workplace context. At least 150 words.]\\n\\n## 3.3 [Key Concept 2 Name]\\n\\n[Detailed explanation of this concept — what it means, how it works, and why it matters in a workplace context. At least 150 words.]\\n\\n## 3.4 [Key Concept 3 Name]\\n\\n[Detailed explanation of this concept — what it means, how it works, and why it matters in a workplace context. At least 150 words.]\\n\\n## 3.5 Examples\\n\\n[2-3 concrete, realistic examples of how employees in this role encounter or apply these concepts day-to-day.]\\n\\n# 4. Case Study / Practical Example\\n\\n[Write a realistic workplace scenario (200-250 words) that walks through a real situation an employee might face. Describe the challenge, the decision made, the outcome, and what can be learned from it.]\\n\\n# 5. Summary / Key Takeaways\\n\\n- [Key takeaway 1 — specific and actionable]\\n- [Key takeaway 2 — specific and actionable]\\n- [Key takeaway 3 — specific and actionable]\\n- [Key takeaway 4 — specific and actionable]\\n\\n# 6. Additional Resources\\n\\n- [Suggested reading, tool, or practice — relevant to this module topic]\\n- [Suggested reading, tool, or practice — relevant to this module topic]",
       "order": 1
     }
   ]
@@ -32,8 +32,9 @@ Return ONLY valid JSON with no markdown fences or extra text:
 Rules:
 - Each module must be distinct and logically ordered
 - Titles must be specific (e.g. "Handling Customer Escalations" not "Module 1")
-- Notes must follow the exact markdown structure above with all 5 sections
-- imageKeyword must be short and describe a real workplace scene related to the module
+- Notes must follow the exact 6-section structure above — target 1500-2000 words per module
+- Replace ALL placeholder text in brackets with real, detailed content relevant to the course
+- imageKeyword must describe a real workplace scene related to the module
 - Generate exactly ${numModules} modules
 `;
 

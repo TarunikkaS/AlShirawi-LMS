@@ -1638,6 +1638,10 @@
       const [aiGenerating, setAiGenerating] = useState(false);
       const [aiResult, setAiResult] = useState(null);
       const [aiError, setAiError] = useState('');
+      const [imgGenKeyword, setImgGenKeyword] = useState('');
+      const [imgGenLabel, setImgGenLabel] = useState('');
+      const [imgGenLoading, setImgGenLoading] = useState(false);
+      const [imgGenError, setImgGenError] = useState('');
 
       useEffect(() => {
         if (!editing) {
@@ -1795,6 +1799,29 @@
       const remove = (id) => {
         if (!window.confirm('Delete this module?')) return;
         setModules(modules.filter((module) => module.id !== id));
+      };
+
+      const generateImage = async () => {
+        const kw = imgGenKeyword.trim();
+        if (!kw) { setImgGenError('Enter a keyword first.'); return; }
+        setImgGenLoading(true);
+        setImgGenError('');
+        try {
+          const res = await fetch('/api/fetch-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-LMS-Session-Email': readSession() || '' },
+            body: JSON.stringify({ keyword: kw, label: imgGenLabel.trim() || kw }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Image fetch failed.');
+          setForm((prev) => ({ ...prev, images: [...(prev.images || []), data.image] }));
+          setImgGenKeyword('');
+          setImgGenLabel('');
+        } catch (err) {
+          setImgGenError(err.message || 'Could not fetch image.');
+        } finally {
+          setImgGenLoading(false);
+        }
       };
 
       const openAI = () => {
@@ -2108,6 +2135,32 @@
                         onChange={(e) => onImageFileChange(e.target.files)}
                       />
                     </label>
+                    <div className="mt-3 rounded-[20px] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-brand">✦ Generate Image from Keyword</div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <input
+                          value={imgGenKeyword}
+                          onChange={(e) => setImgGenKeyword(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                          placeholder="Search keyword (e.g. workplace safety)"
+                        />
+                        <input
+                          value={imgGenLabel}
+                          onChange={(e) => setImgGenLabel(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                          placeholder="Image title / label (optional)"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={generateImage}
+                        disabled={imgGenLoading || !imgGenKeyword.trim()}
+                        className="mt-2 rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 hover:opacity-90"
+                      >
+                        {imgGenLoading ? 'Searching...' : '✦ Generate Image'}
+                      </button>
+                      {imgGenError && <div className="mt-2 text-xs text-red-600">{imgGenError}</div>}
+                    </div>
                     {pendingImages.length > 0 && (
                       <div className="mt-4 space-y-3 rounded-[20px] bg-white p-4 shadow-soft">
                         <div className="flex items-center justify-between">
