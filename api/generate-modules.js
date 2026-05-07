@@ -1,4 +1,7 @@
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+];
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const buildPrompt = ({ courseTitle, courseDescription, courseType, trainingType, focusArea, numModules }) => `
@@ -29,22 +32,28 @@ Rules:
 `;
 
 const callGemini = async (prompt, apiKey) => {
-  const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.7 },
-    }),
-  });
-  if (response.status === 429) return { rateLimited: true };
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Gemini error ${response.status}: ${text}`);
+  let lastError = null;
+  for (const model of GEMINI_MODELS) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.7 },
+        }),
+      }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return { text };
+    }
+    const errText = await response.text();
+    lastError = `Gemini (${model}) ${response.status}: ${errText}`;
   }
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return { text };
+  return { failed: true, error: lastError };
 };
 
 const callGroq = async (prompt, apiKey) => {
@@ -95,14 +104,14 @@ module.exports = async (req, res) => {
   let resultText = null;
 
   if (geminiKey) {
-    const geminiResult = await callGemini(prompt, geminiKey).catch((err) => { throw err; });
-    if (!geminiResult.rateLimited) {
+    const geminiResult = await callGemini(prompt, geminiKey);
+    if (!geminiResult.failed) {
       resultText = geminiResult.text;
     } else if (groqKey) {
       const groqResult = await callGroq(prompt, groqKey);
       resultText = groqResult.text;
     } else {
-      res.status(429).json({ error: 'Gemini daily limit reached. Add GROQ_API_KEY as a fallback.' });
+      res.status(502).json({ error: `Gemini could not generate modules. Details: ${geminiResult.error}` });
       return;
     }
   } else if (groqKey) {
