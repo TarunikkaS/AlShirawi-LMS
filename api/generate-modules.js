@@ -7,7 +7,7 @@ const GEMINI_MODELS = [
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const buildPrompt = ({ courseTitle, courseDescription, courseType, trainingType, focusArea, numModules }) => `
-You are an instructional designer. Generate exactly ${numModules} training modules for the following course.
+You are an expert instructional designer. Generate exactly ${numModules} training modules for the following course.
 
 Course Title: ${courseTitle}
 Course Description: ${courseDescription || 'Not provided'}
@@ -20,7 +20,8 @@ Return ONLY valid JSON in this exact format, no markdown, no explanation:
   "modules": [
     {
       "title": "Module title here",
-      "description": "2-3 sentence description of what this module covers and what the learner will learn.",
+      "description": "One full paragraph (4-6 sentences) describing what this module covers, why it matters, and what the learner will be able to do after completing it.",
+      "notes": "Detailed learning notes for this module. Write at least 3-4 paragraphs covering: (1) key concepts and theory, (2) practical application and real-world examples relevant to the course focus area, (3) common mistakes or things to watch out for, (4) a summary of key takeaways. Write in a clear, professional tone suitable for employee training.",
       "order": 1
     }
   ]
@@ -29,7 +30,8 @@ Return ONLY valid JSON in this exact format, no markdown, no explanation:
 Rules:
 - Each module must be distinct and logically ordered
 - Titles should be specific and action-oriented (e.g. "Understanding Safety Protocols" not "Module 1")
-- Descriptions should be practical and relevant to the course focus area
+- Descriptions must be one full paragraph, not bullet points
+- Notes must be detailed, multi-paragraph learning content — not a summary
 - Generate exactly ${numModules} modules
 `;
 
