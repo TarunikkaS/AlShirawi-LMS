@@ -2448,6 +2448,9 @@
       const [editing, setEditing] = useState(null);
       const [form, setForm] = useState(blankQuiz);
       const [error, setError] = useState('');
+      const [quizGenLoading, setQuizGenLoading] = useState(false);
+      const [quizGenError, setQuizGenError] = useState('');
+      const [quizGenCount, setQuizGenCount] = useState(5);
 
       useEffect(() => {
         if (!editing) {
@@ -2527,6 +2530,32 @@
       const scopeLabel = (quiz) => {
         if (quiz.scopeType === 'course') return courses.find((course) => course.id === quiz.scopeId)?.title || 'Deleted course';
         return modules.find((module) => module.id === quiz.scopeId)?.title || 'Deleted module';
+      };
+
+      const generateQuestions = async () => {
+        if (!clean(form.title, 140)) { setQuizGenError('Enter a quiz title first.'); return; }
+        setQuizGenLoading(true);
+        setQuizGenError('');
+        const scopeTitle = form.scopeType === 'course'
+          ? courses.find((c) => c.id === form.scopeId)?.title
+          : modules.find((m) => m.id === form.scopeId)?.title;
+        try {
+          const res = await fetch('/api/generate-quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-LMS-Session-Email': readSession() || '' },
+            body: JSON.stringify({ quizTitle: form.title, scopeTitle, scopeType: form.scopeType, numQuestions: quizGenCount }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Generation failed.');
+          setForm((prev) => ({
+            ...prev,
+            questions: data.questions.map((q) => ({ ...q, id: uid() })),
+          }));
+        } catch (err) {
+          setQuizGenError(err.message || 'Something went wrong. Try again.');
+        } finally {
+          setQuizGenLoading(false);
+        }
       };
 
       return (
@@ -2618,10 +2647,29 @@
               <Divider />
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="display-font text-xl font-800 text-ink">Questions</h3>
-                  <Button variant="soft" tone="secondary" onClick={() => setForm((prev) => ({ ...prev, questions: [...prev.questions, blankQuestion()] }))}>Add Question</Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={quizGenCount}
+                      onChange={(e) => setQuizGenCount(Number(e.target.value))}
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                    >
+                      {[3, 5, 7, 10, 15].map((n) => <option key={n} value={n}>{n} questions</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={generateQuestions}
+                      disabled={quizGenLoading}
+                      className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 hover:opacity-90"
+                    >
+                      {quizGenLoading ? 'Generating...' : '✦ Generate with AI'}
+                    </button>
+                    <Button variant="soft" tone="secondary" onClick={() => setForm((prev) => ({ ...prev, questions: [...prev.questions, blankQuestion()] }))}>Add Question</Button>
+                  </div>
                 </div>
+                {quizGenError && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{quizGenError}</div>}
+                {quizGenLoading && <div className="rounded-2xl bg-blue-50 px-4 py-3 text-sm text-brand">AI is writing your quiz questions — this takes a few seconds...</div>}
                 {form.questions.map((question, index) => (
                   <div key={question.id} className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
                     <div className="mb-4 flex items-center justify-between gap-3">
