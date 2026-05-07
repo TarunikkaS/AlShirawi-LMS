@@ -1804,7 +1804,7 @@
           description: mod.description,
           order: existingCount + i + 1,
           videoUrl: '',
-          notes: '',
+          notes: mod.notes || '',
           applicability: { designationKeyword: '', departmentKeyword: '', businessLines: [] },
           documents: [],
           images: [],
@@ -1917,10 +1917,16 @@
                 <div className="space-y-3">
                   <p className="text-sm text-slatey">Review the modules below then click <strong>Add {aiResult.length} Modules</strong> to save them, or <strong>Regenerate</strong> to try again.</p>
                   {aiResult.map((mod, i) => (
-                    <div key={i} className="rounded-[20px] border border-slate-100 bg-slate-50 px-4 py-3">
-                      <div className="mb-1 text-xs font-bold text-brand">Module {mod.order}</div>
+                    <div key={i} className="rounded-[20px] border border-slate-100 bg-slate-50 px-4 py-3 space-y-2">
+                      <div className="text-xs font-bold text-brand">Module {mod.order}</div>
                       <div className="font-semibold text-ink">{mod.title}</div>
-                      <div className="mt-1 text-sm text-slatey">{mod.description}</div>
+                      <div className="text-sm text-slatey">{mod.description}</div>
+                      {mod.notes && (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-xs font-semibold text-brand">View notes</summary>
+                          <div className="mt-2 text-sm text-slatey whitespace-pre-line leading-6">{mod.notes}</div>
+                        </details>
+                      )}
                     </div>
                   ))}
                   {aiError && <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{aiError}</div>}
