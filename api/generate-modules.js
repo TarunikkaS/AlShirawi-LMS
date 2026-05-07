@@ -1,6 +1,8 @@
 const GEMINI_MODELS = [
+  'gemini-2.0-flash-lite',
   'gemini-2.0-flash',
-  'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-pro-latest',
 ];
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -32,7 +34,7 @@ Rules:
 `;
 
 const callGemini = async (prompt, apiKey) => {
-  let lastError = null;
+  const errors = [];
   for (const model of GEMINI_MODELS) {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -51,9 +53,9 @@ const callGemini = async (prompt, apiKey) => {
       return { text };
     }
     const errText = await response.text();
-    lastError = `Gemini (${model}) ${response.status}: ${errText}`;
+    errors.push(`${model} → ${response.status}: ${errText}`);
   }
-  return { failed: true, error: lastError };
+  return { failed: true, error: errors.join(' | ') };
 };
 
 const callGroq = async (prompt, apiKey) => {
