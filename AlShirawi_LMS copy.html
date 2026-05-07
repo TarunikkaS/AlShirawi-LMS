@@ -1592,6 +1592,12 @@
       const imageInputRef = useRef(null);
       const videoInputRef = useRef(null);
       const [error, setError] = useState('');
+      const [aiOpen, setAiOpen] = useState(false);
+      const [aiCourseId, setAiCourseId] = useState('');
+      const [aiCount, setAiCount] = useState(5);
+      const [aiGenerating, setAiGenerating] = useState(false);
+      const [aiResult, setAiResult] = useState(null);
+      const [aiError, setAiError] = useState('');
 
       useEffect(() => {
         if (!editing) {
@@ -1751,12 +1757,75 @@
         setModules(modules.filter((module) => module.id !== id));
       };
 
+      const openAI = () => {
+        setAiOpen(true);
+        setAiCourseId(courses[0]?.id || '');
+        setAiCount(5);
+        setAiResult(null);
+        setAiError('');
+      };
+
+      const generateModules = async () => {
+        const course = courses.find((c) => c.id === aiCourseId);
+        if (!course) { setAiError('Select a course first.'); return; }
+        setAiGenerating(true);
+        setAiError('');
+        setAiResult(null);
+        try {
+          const res = await fetch('/api/generate-modules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-LMS-Session-Email': readSession() || '' },
+            body: JSON.stringify({
+              courseTitle: course.title,
+              courseDescription: course.description,
+              courseType: course.type,
+              trainingType: course.trainingType,
+              focusArea: course.focusArea,
+              numModules: aiCount,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Generation failed.');
+          setAiResult(data.modules);
+        } catch (err) {
+          setAiError(err.message || 'Something went wrong. Try again.');
+        } finally {
+          setAiGenerating(false);
+        }
+      };
+
+      const addGeneratedModules = () => {
+        if (!aiResult || !aiCourseId) return;
+        const existingCount = modules.filter((m) => m.courseId === aiCourseId).length;
+        const newModules = aiResult.map((mod, i) => ({
+          id: uid(),
+          courseId: aiCourseId,
+          title: mod.title,
+          description: mod.description,
+          order: existingCount + i + 1,
+          videoUrl: '',
+          notes: '',
+          applicability: { designationKeyword: '', departmentKeyword: '', businessLines: [] },
+          documents: [],
+          images: [],
+          createdAt: Date.now(),
+        }));
+        setModules([...modules, ...newModules]);
+        setAiOpen(false);
+        setAiResult(null);
+      };
+
       return (
         <div className="space-y-6">
           <SectionTitle
             title="Module Management"
             subtitle="Add videos, documents, pictures, notes, and profile-based module applicability inside each course."
-            action={<Button onClick={openNew} disabled={courses.length === 0}>Add Module</Button>}
+            action={
+              <div className="flex gap-2">
+                <Button variant="soft" tone="slate" onClick={openAI} disabled={courses.length === 0}>✦ Generate with AI</Button>
+                <Button onClick={openNew} disabled={courses.length === 0}>Add Module</Button>
+              </div>
+            }
           />
           {courses.length === 0 && <Panel className="p-6 text-sm text-slatey">Create at least one course before adding modules.</Panel>}
           <div className="grid gap-4">
@@ -1800,6 +1869,65 @@
                 })
             )}
           </div>
+
+          {aiOpen && (
+            <Modal
+              title="Generate Modules with AI"
+              subtitle="Let AI create a module outline for your course. Review the result before adding."
+              onClose={() => setAiOpen(false)}
+              actions={
+                aiResult ? (
+                  <>
+                    <Button variant="soft" tone="slate" onClick={() => setAiResult(null)}>Regenerate</Button>
+                    <Button onClick={addGeneratedModules}>Add {aiResult.length} Modules</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="soft" tone="slate" onClick={() => setAiOpen(false)}>Cancel</Button>
+                    <Button onClick={generateModules} disabled={aiGenerating || !aiCourseId}>
+                      {aiGenerating ? 'Generating...' : 'Generate'}
+                    </Button>
+                  </>
+                )
+              }
+            >
+              {!aiResult ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SelectInput
+                    label="Course"
+                    value={aiCourseId}
+                    onChange={(value) => setAiCourseId(value)}
+                    options={courses.map((c) => ({ value: c.id, label: c.title }))}
+                    required
+                  />
+                  <SelectInput
+                    label="Number of Modules"
+                    value={String(aiCount)}
+                    onChange={(value) => setAiCount(Number(value))}
+                    options={[3, 5, 7, 10].map((n) => ({ value: String(n), label: `${n} modules` }))}
+                  />
+                  {aiGenerating && (
+                    <div className="col-span-2 rounded-2xl bg-blue-50 px-4 py-3 text-sm text-brand">
+                      AI is generating your modules — this takes a few seconds...
+                    </div>
+                  )}
+                  {aiError && <div className="col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{aiError}</div>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-slatey">Review the modules below then click <strong>Add {aiResult.length} Modules</strong> to save them, or <strong>Regenerate</strong> to try again.</p>
+                  {aiResult.map((mod, i) => (
+                    <div key={i} className="rounded-[20px] border border-slate-100 bg-slate-50 px-4 py-3">
+                      <div className="mb-1 text-xs font-bold text-brand">Module {mod.order}</div>
+                      <div className="font-semibold text-ink">{mod.title}</div>
+                      <div className="mt-1 text-sm text-slatey">{mod.description}</div>
+                    </div>
+                  ))}
+                  {aiError && <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{aiError}</div>}
+                </div>
+              )}
+            </Modal>
+          )}
 
           {editing && (
             <Modal
