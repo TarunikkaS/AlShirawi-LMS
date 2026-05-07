@@ -549,6 +549,46 @@
 
     const Divider = () => <div className="my-6 border-t border-slate-100" />;
 
+    const RenderMarkdown = ({ text, className = '' }) => {
+      const lines = (text || '').split('\n');
+      const out = [];
+      let listItems = [];
+      const flushList = () => {
+        if (!listItems.length) return;
+        out.push(
+          React.createElement('ul', { key: `ul-${out.length}`, className: 'my-3 space-y-2 pl-1' },
+            listItems.map((item, idx) =>
+              React.createElement('li', { key: idx, className: 'flex gap-2 text-slate-700' },
+                React.createElement('span', { className: 'mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand' }),
+                React.createElement('span', { dangerouslySetInnerHTML: { __html: item.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') } })
+              )
+            )
+          )
+        );
+        listItems = [];
+      };
+      lines.forEach((raw, i) => {
+        const line = raw.trimEnd();
+        if (line.startsWith('# ')) {
+          flushList();
+          out.push(React.createElement('h3', { key: i, className: 'mt-6 mb-2 text-base font-800 text-ink first:mt-0' }, line.slice(2)));
+        } else if (line.startsWith('## ')) {
+          flushList();
+          out.push(React.createElement('h4', { key: i, className: 'mt-4 mb-1 font-semibold text-ink' }, line.slice(3)));
+        } else if (/^[-•] /.test(line)) {
+          listItems.push(line.slice(2));
+        } else if (line.trim() === '') {
+          flushList();
+        } else {
+          flushList();
+          const html = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          out.push(React.createElement('p', { key: i, className: 'leading-7 text-[15px] text-slate-700', dangerouslySetInnerHTML: { __html: html } }));
+        }
+      });
+      flushList();
+      return React.createElement('div', { className }, out);
+    };
+
     const Reveal = ({ children, delay = 0, className = '', as: Tag = 'div' }) => {
       const ref = useRef(null);
       const [visible, setVisible] = useState(false);
@@ -1807,7 +1847,7 @@
           notes: mod.notes || '',
           applicability: { designationKeyword: '', departmentKeyword: '', businessLines: [] },
           documents: [],
-          images: [],
+          images: mod.images || [],
           createdAt: Date.now(),
         }));
         setModules([...modules, ...newModules]);
@@ -1924,8 +1964,17 @@
                       {mod.notes && (
                         <details className="mt-1">
                           <summary className="cursor-pointer text-xs font-semibold text-brand">View notes</summary>
-                          <div className="mt-2 text-sm text-slatey whitespace-pre-line leading-6">{mod.notes}</div>
+                          <div className="mt-3 border-t border-slate-200 pt-3">
+                            <RenderMarkdown text={mod.notes} />
+                          </div>
                         </details>
+                      )}
+                      {mod.images?.length > 0 && (
+                        <div className="mt-2 flex gap-2">
+                          {mod.images.map((img) => (
+                            <img key={img.id} src={img.dataUrl} alt={img.label} className="h-16 w-24 rounded-xl object-cover" />
+                          ))}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -3053,7 +3102,7 @@
                     <p className="mt-2 text-sm text-slatey">Read carefully — this is the core learning material for this module.</p>
                   </div>
                   <div className="flex-1 md:border-l md:border-slate-200 md:pl-8">
-                    <div className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700">{module.notes}</div>
+                    <RenderMarkdown text={module.notes} />
                   </div>
                 </div>
               </div>

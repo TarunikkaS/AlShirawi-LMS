@@ -7,7 +7,8 @@ const GEMINI_MODELS = [
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const buildPrompt = ({ courseTitle, courseDescription, courseType, trainingType, focusArea, numModules }) => `
-You are an expert instructional designer. Generate exactly ${numModules} training modules for the following course.
+You are an expert instructional designer creating employee training content.
+Generate exactly ${numModules} training modules for the following course.
 
 Course Title: ${courseTitle}
 Course Description: ${courseDescription || 'Not provided'}
@@ -15,13 +16,14 @@ Course Requirement: ${courseType}
 Training Type: ${trainingType}
 Focus Area: ${focusArea}
 
-Return ONLY valid JSON in this exact format, no markdown, no explanation:
+Return ONLY valid JSON with no markdown fences or extra text:
 {
   "modules": [
     {
-      "title": "Module title here",
-      "description": "One full paragraph (4-6 sentences) describing what this module covers, why it matters, and what the learner will be able to do after completing it.",
-      "notes": "Detailed learning notes for this module. Write at least 3-4 paragraphs covering: (1) key concepts and theory, (2) practical application and real-world examples relevant to the course focus area, (3) common mistakes or things to watch out for, (4) a summary of key takeaways. Write in a clear, professional tone suitable for employee training.",
+      "title": "Specific action-oriented title",
+      "description": "One full paragraph (4-6 sentences) describing what this module covers, why it matters, and what the learner will achieve.",
+      "imageKeyword": "2-3 word phrase for a relevant stock photo (e.g. 'workplace safety equipment' or 'team communication meeting')",
+      "notes": "# Overview\\n\\nWrite 2-3 sentences introducing this module topic.\\n\\n# Key Concepts\\n\\n- **Concept name**: Clear explanation of this concept and why it matters.\\n- **Concept name**: Clear explanation of this concept and why it matters.\\n- **Concept name**: Clear explanation of this concept and why it matters.\\n\\n# Practical Application\\n\\nWrite 2-3 paragraphs describing how employees apply this in their day-to-day work. Include a real-world workplace scenario or example relevant to the course focus area.\\n\\n# Common Mistakes to Avoid\\n\\n- **Mistake**: Explain the mistake and its consequences.\\n- **Mistake**: Explain the mistake and its consequences.\\n- **Mistake**: Explain the mistake and its consequences.\\n\\n# Key Takeaways\\n\\n- First important point the learner should remember.\\n- Second important point the learner should remember.\\n- Third important point the learner should remember.",
       "order": 1
     }
   ]
@@ -29,9 +31,9 @@ Return ONLY valid JSON in this exact format, no markdown, no explanation:
 
 Rules:
 - Each module must be distinct and logically ordered
-- Titles should be specific and action-oriented (e.g. "Understanding Safety Protocols" not "Module 1")
-- Descriptions must be one full paragraph, not bullet points
-- Notes must be detailed, multi-paragraph learning content — not a summary
+- Titles must be specific (e.g. "Handling Customer Escalations" not "Module 1")
+- Notes must follow the exact markdown structure above with all 5 sections
+- imageKeyword must be short and describe a real workplace scene related to the module
 - Generate exactly ${numModules} modules
 `;
 
@@ -63,12 +65,9 @@ const callGemini = async (prompt, apiKey) => {
 const callGroq = async (prompt, apiKey) => {
   const response = await fetch(GROQ_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
+      model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
       temperature: 0.7,
@@ -83,6 +82,26 @@ const callGroq = async (prompt, apiKey) => {
   return { text };
 };
 
+const fetchPexelsImage = async (keyword, apiKey) => {
+  try {
+    const resp = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(keyword)}&per_page=1&orientation=landscape`,
+      { headers: { Authorization: apiKey } }
+    );
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const photo = data.photos?.[0];
+    if (!photo) return null;
+    return {
+      id: `pexels-${photo.id}`,
+      dataUrl: photo.src.large2x || photo.src.large,
+      label: photo.alt || keyword,
+    };
+  } catch {
+    return null;
+  }
+};
+
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed.' }); return; }
@@ -92,6 +111,8 @@ module.exports = async (req, res) => {
 
   const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
+  const pexelsKey = process.env.PEXELS_API_KEY;
+
   if (!geminiKey && !groqKey) {
     res.status(500).json({ error: 'No AI API key configured. Add GEMINI_API_KEY or GROQ_API_KEY to your Vercel environment variables.' });
     return;
@@ -131,11 +152,24 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const modules = (parsed.modules || []).map((mod, i) => ({
-    title: String(mod.title || '').trim(),
-    description: String(mod.description || '').trim(),
-    order: Number(mod.order) || i + 1,
-  })).filter((mod) => mod.title);
+  const rawModules = (parsed.modules || []).filter((mod) => mod.title);
+
+  const modules = await Promise.all(
+    rawModules.map(async (mod, i) => {
+      let images = [];
+      if (pexelsKey && mod.imageKeyword) {
+        const img = await fetchPexelsImage(mod.imageKeyword, pexelsKey);
+        if (img) images = [img];
+      }
+      return {
+        title: String(mod.title || '').trim(),
+        description: String(mod.description || '').trim(),
+        notes: String(mod.notes || '').trim(),
+        images,
+        order: Number(mod.order) || i + 1,
+      };
+    })
+  );
 
   if (!modules.length) {
     res.status(502).json({ error: 'AI did not return any modules. Try again.' });
