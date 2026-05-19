@@ -3603,9 +3603,9 @@
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filteredCards.map(({ assignment, course, status }) => (
                 <Panel key={assignment.id} className="group relative overflow-hidden p-6 transition hover:-translate-y-0.5 hover:shadow-float">
-                  <div className={`absolute inset-x-0 top-0 h-1 ${course.type === 'Essential' ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`} />
+                  <div className={`absolute inset-x-0 top-0 h-1 ${(assignment.assignmentType || course.type) === 'Essential' ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`} />
                   <div className="flex flex-wrap gap-2">
-                    <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                    <Tag tone={(assignment.assignmentType || course.type) === 'Essential' ? 'amber' : 'teal'}>{assignment.assignmentType || course.type}</Tag>
                     <Tag tone="blue">{course.trainingType}</Tag>
                     <Tag tone="slate">{course.focusArea}</Tag>
                   </div>
