@@ -3449,8 +3449,8 @@
         return { assignment, course, status: courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts }) };
       }).filter(Boolean);
       const completed = statuses.filter((item) => item.status.completed).length;
-      const essential = statuses.filter((item) => item.course.type === 'Essential');
-      const desirable = statuses.filter((item) => item.course.type === 'Desirable');
+      const essential = statuses.filter((item) => (item.assignment.assignmentType || item.course.type) === 'Essential');
+      const desirable = statuses.filter((item) => (item.assignment.assignmentType || item.course.type) === 'Desirable');
       const progressPct = statuses.length ? Math.round(statuses.reduce((sum, item) => sum + item.status.progressPct, 0) / statuses.length) : 0;
       const bestQuizScore = quizAttempts.filter((item) => item.email === user.email).length
         ? Math.max(...quizAttempts.filter((item) => item.email === user.email).map((item) => item.score))
@@ -3485,7 +3485,7 @@
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <div className="mb-3 flex flex-wrap gap-2">
-                          <Tag tone={course.type === 'Essential' ? 'amber' : 'teal'}>{course.type}</Tag>
+                          <Tag tone={(assignment.assignmentType || course.type) === 'Essential' ? 'amber' : 'teal'}>{assignment.assignmentType || course.type}</Tag>
                           <Tag tone="blue">{course.trainingType}</Tag>
                           <Tag tone={status.completed ? 'green' : 'slate'}>{status.pendingLabel}</Tag>
                         </div>
