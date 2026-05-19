@@ -87,6 +87,7 @@ const COLLECTIONS = {
       dueDate: row.due_date || '',
       assignedAt: row.assigned_at_ms || 0,
       source: row.source || '',
+      assignmentType: row.assignment_type || 'Essential',
     }),
     toRow: (item) => ({
       id: item.id,
@@ -95,6 +96,7 @@ const COLLECTIONS = {
       due_date: item.dueDate || null,
       assigned_at_ms: item.assignedAt || Date.now(),
       source: item.source || '',
+      assignment_type: item.assignmentType || 'Essential',
     }),
   },
   assignment_rules: {

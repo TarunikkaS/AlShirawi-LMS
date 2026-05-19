@@ -2220,8 +2220,7 @@
 
     const AssignmentManagement = ({ users, courses, assignments, setAssignments, assignmentRules, setAssignmentRules }) => {
       const learners = users.filter((user) => user.role === 'learner');
-      const [manual, setManual] = useState({ email: learners[0]?.email || '', courseId: courses[0]?.id || '', dueDate: '' });
-      const [manualCourseType, setManualCourseType] = useState('All');
+      const [manual, setManual] = useState({ email: learners[0]?.email || '', courseId: courses[0]?.id || '', dueDate: '', assignmentType: 'Essential' });
       const [rule, setRule] = useState({
         name: '',
         courseId: courses[0]?.id || '',
@@ -2256,6 +2255,7 @@
             dueDate: manual.dueDate,
             assignedAt: Date.now(),
             source: 'Manual assignment',
+            assignmentType: manual.assignmentType || 'Essential',
           },
         ]);
         setMessage('Manual course assignment created.');
@@ -2333,17 +2333,17 @@
               <p className="mt-2 text-sm text-slatey">Use this for one-to-one assignment after reviewing a participant profile.</p>
               <div className="mt-6 grid gap-4">
                 <SelectInput label="Learner" value={manual.email} onChange={(value) => setManual((prev) => ({ ...prev, email: value }))} options={[{ value: '', label: 'Select learner' }, ...learners.map((learner) => ({ value: learner.email, label: `${learner.name} (${learner.employeeId})` }))]} />
+                <SelectInput label="Course" value={manual.courseId} onChange={(value) => setManual((prev) => ({ ...prev, courseId: value }))} options={[{ value: '', label: 'Select course' }, ...courses.map((course) => ({ value: course.id, label: course.title }))]} />
                 <div>
-                  <div className="mb-2 text-sm font-semibold text-slate-700">Course Type</div>
-                  <div className="flex gap-2 mb-3">
-                    {['All', 'Essential', 'Desirable'].map((type) => (
-                      <button key={type} onClick={() => { setManualCourseType(type); setManual((prev) => ({ ...prev, courseId: '' })); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-semibold border transition-colors ${manualCourseType === type ? 'bg-brand text-white border-brand' : 'bg-white text-slate-600 border-slate-200 hover:border-brand hover:text-brand'}`}>
+                  <div className="mb-2 text-sm font-semibold text-slate-700">Assign as</div>
+                  <div className="flex gap-2">
+                    {['Essential', 'Desirable'].map((type) => (
+                      <button key={type} onClick={() => setManual((prev) => ({ ...prev, assignmentType: type }))}
+                        className={`px-4 py-1.5 rounded-full text-sm font-semibold border transition-colors ${manual.assignmentType === type ? (type === 'Essential' ? 'bg-amber-500 text-white border-amber-500' : 'bg-teal-500 text-white border-teal-500') : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
                         {type}
                       </button>
                     ))}
                   </div>
-                  <SelectInput label="Course" value={manual.courseId} onChange={(value) => setManual((prev) => ({ ...prev, courseId: value }))} options={[{ value: '', label: 'Select course' }, ...courses.filter((c) => manualCourseType === 'All' || c.type === manualCourseType).map((course) => ({ value: course.id, label: course.title }))]} />
                 </div>
                 <TextInput label="Due Date" value={manual.dueDate} onChange={(value) => setManual((prev) => ({ ...prev, dueDate: value }))} type="date" />
               </div>
@@ -3551,8 +3551,8 @@
 
       const tabs = [
         { id: 'all', label: 'All Courses', match: () => true, tone: 'slate' },
-        { id: 'essential', label: 'Essential', match: ({ course }) => course.type === 'Essential', tone: 'amber' },
-        { id: 'desirable', label: 'Desirable', match: ({ course }) => course.type === 'Desirable', tone: 'teal' },
+        { id: 'essential', label: 'Essential', match: ({ assignment, course }) => (assignment.assignmentType || course.type) === 'Essential', tone: 'amber' },
+        { id: 'desirable', label: 'Desirable', match: ({ assignment, course }) => (assignment.assignmentType || course.type) === 'Desirable', tone: 'teal' },
         { id: 'behavioral', label: 'Behavioral', match: ({ course }) => course.trainingType === 'Behavioral', tone: 'blue' },
         { id: 'functional', label: 'Functional', match: ({ course }) => course.trainingType === 'Functional', tone: 'violet' },
       ];
