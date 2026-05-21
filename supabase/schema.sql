@@ -54,6 +54,7 @@ create table if not exists public.assignments (
   due_date date,
   assigned_at_ms bigint not null,
   source text default '',
+  assignment_type text not null default 'Essential' check (assignment_type in ('Essential', 'Desirable')),
   inserted_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (email, course_id)

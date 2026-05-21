@@ -1,3 +1,4 @@
+const { verifyToken } = require('./auth');
 const BUCKET = 'module-videos';
 const MAX_NAME_LEN = 160;
 
@@ -32,9 +33,8 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const sessionEmail = String(req.headers['x-lms-session-email'] || '').trim();
+    const sessionEmail = await verifyToken(req, res);
     if (!sessionEmail) {
-      res.status(401).json({ error: 'Sign in before uploading videos.' });
       return;
     }
 

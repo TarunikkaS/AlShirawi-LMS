@@ -1,9 +1,10 @@
+const { verifyToken } = require('./auth');
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed.' }); return; }
 
-  const sessionEmail = String(req.headers['x-lms-session-email'] || '').trim();
-  if (!sessionEmail) { res.status(401).json({ error: 'Sign in before fetching images.' }); return; }
+  const sessionEmail = await verifyToken(req, res);
+  if (!sessionEmail) return;
 
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey) {

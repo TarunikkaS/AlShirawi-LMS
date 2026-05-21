@@ -1,3 +1,4 @@
+const { verifyToken } = require('./auth');
 const GEMINI_MODELS = [
   'gemini-2.0-flash-lite',
   'gemini-2.0-flash',
@@ -107,8 +108,8 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed.' }); return; }
 
-  const sessionEmail = String(req.headers['x-lms-session-email'] || '').trim();
-  if (!sessionEmail) { res.status(401).json({ error: 'Sign in before using AI generation.' }); return; }
+  const sessionEmail = await verifyToken(req, res);
+  if (!sessionEmail) return;
 
   const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;

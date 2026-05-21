@@ -10,6 +10,27 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, getIdToken } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+    const app = initializeApp({
+      apiKey: "AIzaSyA0To1d7qSW9JF0A72qPio_gjg1lNtwEcY",
+      authDomain: "gccin-222609.firebaseapp.com",
+      projectId: "gccin-222609",
+      storageBucket: "gccin-222609.firebasestorage.app",
+      messagingSenderId: "923297805308",
+      appId: "1:923297805308:web:cc981501f867fd79faf879"
+    });
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ hd: 'equipment.ae' });
+    window.__lmsAuth = {
+      signIn: () => signInWithPopup(auth, provider),
+      signOut: () => signOut(auth),
+      onAuthStateChanged: (cb) => onAuthStateChanged(auth, cb),
+      getToken: () => auth.currentUser ? getIdToken(auth.currentUser) : Promise.resolve(null),
+    };
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
@@ -234,7 +255,7 @@
     const TRAINING_TYPES = ['Behavioral', 'Functional'];
     const BEHAVIORAL_FOCUS = ['Communication', 'Personality Development'];
     const FUNCTIONAL_FOCUS = ['Domain-specific', 'Role-specific'];
-    const SESSION_HOURS = 8;
+    const getToken = () => window.__lmsAuth?.getToken() ?? Promise.resolve(null);
 
     const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const fmtDate = (value) => value ? new Date(value).toLocaleDateString('en-GB') : '—';
@@ -280,11 +301,12 @@
         if (!DATA_COLLECTIONS.includes(collection)) {
           throw new Error(`Unknown LMS collection: ${collection}`);
         }
+        const token = await getToken();
         const response = await fetch(`/api/lms-data?collection=${encodeURIComponent(collection)}`, {
           method,
           headers: {
             'Content-Type': 'application/json',
-            'X-LMS-Session-Email': readSession() || '',
+            'Authorization': token ? `Bearer ${token}` : '',
           },
           body: payload ? JSON.stringify(payload) : undefined,
         });
@@ -314,19 +336,6 @@
       },
     };
 
-    const readSession = () => {
-      const session = store.read('session', null);
-      if (!session || !session.email || !session.expiresAt) return null;
-      if (Date.now() > session.expiresAt) {
-        store.clear('session');
-        return null;
-      }
-      return session.email;
-    };
-
-    const setSession = (email) => {
-      store.write('session', { email, expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000 });
-    };
 
     const useSupabaseCollection = (key, fallback) => {
       const [value, setValue] = useState(fallback);
@@ -941,143 +950,34 @@
       doc.save(`${course.title.replace(/[^a-z0-9]+/gi, '_')}_certificate.pdf`);
     };
 
-    const LoginPage = ({ onLogin, onCreateAccount }) => {
-      const [mode, setMode] = useState('signin');
-      const [email, setEmail] = useState('');
-      const [error, setError] = useState('');
-      const [createError, setCreateError] = useState('');
-      const [createMessage, setCreateMessage] = useState('');
-      const [createForm, setCreateForm] = useState({
-        employeeId: '',
-        name: '',
-        designation: '',
-        email: '',
-        department: '',
-        businessLine: BUSINESS_LINES[0],
-        businessLineOther: '',
-      });
-
-      const submit = (e) => {
-        e.preventDefault();
-        const value = email.trim().toLowerCase();
-        if (!EMAIL_RE.test(value)) {
-          setError('Use a valid company email in the @equipment.ae format.');
-          return;
-        }
+    const LoginPage = ({ onLogin }) => {
+      const [loading, setLoading] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const handleSignIn = async () => {
+        setLoading(true);
         setError('');
-        onLogin(value);
+        try { await onLogin(); } catch(e) { setError(e.message || 'Sign-in failed.'); }
+        setLoading(false);
       };
-
-      const updateCreateForm = (field, value) => setCreateForm((prev) => ({ ...prev, [field]: value }));
-
-      const createAccount = (e) => {
-        e.preventDefault();
-        const result = onCreateAccount(createForm);
-        if (result.ok) {
-          setCreateMessage(result.message);
-          setCreateError('');
-          setCreateForm({
-            employeeId: '',
-            name: '',
-            designation: '',
-            email: '',
-            department: '',
-            businessLine: BUSINESS_LINES[0],
-            businessLineOther: '',
-          });
-          setMode('signin');
-        } else {
-          setCreateError(result.message);
-          setCreateMessage('');
-        }
-      };
-
       return (
-        <div className="min-h-screen hero-grid px-4 py-8 md:px-8">
-          <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl items-center gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-            <div className="relative overflow-hidden rounded-[32px] border border-white/70 bg-gradient-to-br from-slate-950 via-brandDark to-brand px-8 py-10 text-white shadow-float md:px-12 md:py-14">
-              <div className="absolute -left-12 top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-              <div className="absolute -right-8 bottom-0 h-52 w-52 rounded-full bg-teal-300/15 blur-3xl" />
-              <div className="relative z-10">
-                <Logo className="h-16 w-auto rounded-xl bg-white px-4 py-2 shadow-soft" />
-                <h1 className="display-font mt-8 max-w-2xl text-4xl font-800 leading-tight md:text-5xl">
-                  Al Shirawi Equipment Co Learning Management System
-                </h1>
-                <div className="mt-10 max-w-2xl rounded-[28px] border border-white/15 bg-white/10 p-7 backdrop-blur">
-                  <div className="display-font text-2xl font-800 leading-snug text-white md:text-3xl">
-                    “KEEP LEARNING, KEEP GROWING, KEEP WINNING.”
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Panel className="glass overflow-hidden">
-              <div className="border-b border-slate-100 px-8 py-8">
-                <div className="flex items-center gap-4">
-                  <div className="rounded-2xl bg-blue-50 p-3">
-                    <Logo className="h-10 w-auto" />
-                  </div>
-                  <div>
-                    <h2 className="display-font text-3xl font-800 text-ink">{mode === 'signin' ? 'Sign In' : 'Create Account'}</h2>
-                    <p className="mt-1 text-sm text-slatey">Use your company email to access the LMS.</p>
-                  </div>
-                </div>
-                <div className="mt-6 grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
-                  <button type="button" onClick={() => setMode('signin')} className={`rounded-2xl px-4 py-2 text-sm font-semibold ${mode === 'signin' ? 'bg-white text-brand shadow-soft' : 'text-slate-500'}`}>Sign In</button>
-                  <button type="button" onClick={() => setMode('create')} className={`rounded-2xl px-4 py-2 text-sm font-semibold ${mode === 'create' ? 'bg-white text-brand shadow-soft' : 'text-slate-500'}`}>Create Account</button>
-                </div>
-              </div>
-
-              {mode === 'signin' ? (
-                <form onSubmit={submit} className="space-y-5 px-8 py-8">
-                  {createMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{createMessage}</div>}
-                  <TextInput
-                    label="Company Email"
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="name@equipment.ae"
-                    type="email"
-                    required
-                  />
-                  {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-                  <Button type="submit" className="w-full justify-center py-3 text-base">Enter LMS</Button>
-                </form>
-              ) : (
-                <form onSubmit={createAccount} className="space-y-5 px-8 py-8">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <TextInput label="Employee ID" value={createForm.employeeId} onChange={(value) => updateCreateForm('employeeId', value)} required />
-                    <TextInput label="Name" value={createForm.name} onChange={(value) => updateCreateForm('name', value)} required />
-                    <TextInput label="Designation" value={createForm.designation} onChange={(value) => updateCreateForm('designation', value)} required />
-                    <TextInput label="Company Email" value={createForm.email} onChange={(value) => updateCreateForm('email', value)} placeholder="employee@equipment.ae" required />
-                    <TextInput label="Department" value={createForm.department} onChange={(value) => updateCreateForm('department', value)} required />
-                    <SelectInput
-                      label="Business Line"
-                      value={createForm.businessLine}
-                      onChange={(value) => updateCreateForm('businessLine', value)}
-                      options={BUSINESS_LINES.map((line) => ({ value: line, label: line }))}
-                      required
-                    />
-                  </div>
-
-                  {createForm.businessLine === 'Other' && (
-                    <TextInput
-                      label="Other Business Line"
-                      value={createForm.businessLineOther}
-                      onChange={(value) => updateCreateForm('businessLineOther', value)}
-                      required
-                    />
-                  )}
-
-                  {createError && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
-                  <Button type="submit" className="w-full justify-center py-3 text-base">Create Account</Button>
-                </form>
-              )}
+        <div className="min-h-screen hero-grid flex items-center justify-center px-4">
+          <div className="w-full max-w-md">
+            <Panel className="p-8 text-center">
+              <Logo className="mx-auto h-16 w-auto rounded-xl bg-white px-4 py-2 shadow-soft" />
+              <h1 className="display-font mt-6 text-2xl font-800 text-ink">Al Shirawi LMS</h1>
+              <p className="mt-2 text-sm text-slatey">Sign in with your company Google account to continue.</p>
+              {error && <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+              <button onClick={handleSignIn} disabled={loading}
+                className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-soft transition hover:bg-slate-50 disabled:opacity-50">
+                <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                {loading ? 'Signing in...' : 'Sign in with Google'}
+              </button>
+              <p className="mt-4 text-xs text-slate-400">Only @equipment.ae accounts are permitted.</p>
             </Panel>
           </div>
         </div>
       );
     };
-
     const Header = ({ user, onToggleNav, onLogout, onProfile }) => (
       <header className="sticky top-0 z-30 border-b border-white/70 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-4 py-4 md:px-6">
@@ -1723,7 +1623,7 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-LMS-Session-Email': readSession() || '',
+              'Authorization': `Bearer ${await getToken() || ''}`,
             },
             body: JSON.stringify({ fileName: file.name, fileType: file.type }),
           });
@@ -3790,7 +3690,7 @@
     const App = () => {
       const searchParams = new URLSearchParams(window.location.search);
       const standaloneCourseId = searchParams.get('courseView') === '1' ? searchParams.get('courseId') : '';
-      const [sessionEmail, setSessionEmail] = useState(() => readSession());
+      const [sessionEmail, setSessionEmail] = useState(null);
       const [users, setUsers, usersState] = useSupabaseCollection('users', []);
       const [courses, setCourses, coursesState] = useSupabaseCollection('courses', []);
       const [modules, setModules, modulesState] = useSupabaseCollection('modules', []);
@@ -3807,15 +3707,12 @@
       const dataError = dataStates.map((state) => state.error).find(Boolean);
 
       useEffect(() => {
-        const timer = setInterval(() => {
-          const valid = readSession();
-          if (!valid && sessionEmail) {
-            setSessionEmail(null);
-            setView('dashboard');
-          }
-        }, 60000);
-        return () => clearInterval(timer);
-      }, [sessionEmail]);
+        if (!window.__lmsAuth) return;
+        return window.__lmsAuth.onAuthStateChanged((user) => {
+          setSessionEmail(user ? user.email : null);
+          if (!user) setView('dashboard');
+        });
+      }, []);
 
       useEffect(() => {
         const bootstrapExists = users.some((user) => user.email === SUPER_EMAIL);
@@ -3868,14 +3765,12 @@
         if (changed) setCertificates(nextCertificates);
       }, [users, courses, modules, assignments, progress, quizzes, quizAttempts]);
 
-      const login = (email) => {
-        const existing = users.find((user) => user.email === email);
-        if (!existing && email !== SUPER_EMAIL) {
-          alert('This company email has not been created in the LMS yet. Use Create Account first.');
-          return;
+      const login = async () => {
+        try {
+          await window.__lmsAuth.signIn();
+        } catch (err) {
+          alert('Sign-in failed: ' + (err.message || 'Unknown error'));
         }
-        setSession(email);
-        setSessionEmail(email);
       };
 
       const createAccount = (form) => {
@@ -3930,8 +3825,7 @@
       };
 
       const logout = () => {
-        store.clear('session');
-        setSessionEmail(null);
+        window.__lmsAuth?.signOut();
         setView('dashboard');
       };
 
@@ -3953,7 +3847,7 @@
       }
 
       if (!sessionEmail) {
-        return <LoginPage onLogin={login} onCreateAccount={createAccount} />;
+        return <LoginPage onLogin={login} />;
       }
 
       const user = users.find((item) => item.email === sessionEmail);
