@@ -10,9 +10,8 @@ const verifyToken = async (req, res) => {
   try {
     const decoded = await auth.verifyIdToken(token);
     return decoded.email;
-  } catch (err) {
-    const code = err.code || err.errorInfo?.code || 'unknown';
-    res.status(401).json({ error: `Token error: ${code}` });
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token.' });
     return null;
   }
 };
