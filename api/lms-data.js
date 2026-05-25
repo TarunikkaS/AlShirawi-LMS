@@ -11,23 +11,31 @@ const readRecords = async (collection) => {
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 };
 
+const BATCH_LIMIT = 499;
+
+const sanitize = (obj) => JSON.parse(JSON.stringify(obj, (_, v) => (v === undefined ? null : v)));
+
 const replaceRecords = async (collection, records, previousIds = []) => {
-  const batch = db.batch();
   const nextIds = new Set(records.map((r) => r.id).filter(Boolean));
+  const ops = [];
 
   for (const record of records) {
     if (!record.id) continue;
-    const ref = db.collection(collection).doc(record.id);
-    batch.set(ref, record, { merge: true });
+    ops.push({ type: 'set', id: record.id, data: sanitize(record) });
   }
-
   for (const id of previousIds) {
-    if (!nextIds.has(id)) {
-      batch.delete(db.collection(collection).doc(id));
-    }
+    if (!nextIds.has(id)) ops.push({ type: 'delete', id });
   }
 
-  await batch.commit();
+  for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
+    const batch = db.batch();
+    for (const op of ops.slice(i, i + BATCH_LIMIT)) {
+      const ref = db.collection(collection).doc(op.id);
+      if (op.type === 'set') batch.set(ref, op.data, { merge: true });
+      else batch.delete(ref);
+    }
+    await batch.commit();
+  }
 };
 
 module.exports = async (req, res) => {
