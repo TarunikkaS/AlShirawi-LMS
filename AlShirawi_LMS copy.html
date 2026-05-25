@@ -337,12 +337,13 @@
     };
 
 
-    const useFirestoreCollection = (key, fallback) => {
+    const useFirestoreCollection = (key, fallback, enabled = true) => {
       const [value, setValue] = useState(fallback);
-      const [loading, setLoading] = useState(true);
+      const [loading, setLoading] = useState(false);
       const [error, setError] = useState('');
 
       useEffect(() => {
+        if (!enabled) return;
         let active = true;
         setLoading(true);
         dataApi.loadCollection(key, fallback)
@@ -359,7 +360,7 @@
             if (active) setLoading(false);
           });
         return () => { active = false; };
-      }, [key]);
+      }, [key, enabled]);
 
       const setSyncedValue = (nextValue) => {
         setValue((prev) => {
@@ -3690,15 +3691,17 @@
       const searchParams = new URLSearchParams(window.location.search);
       const standaloneCourseId = searchParams.get('courseView') === '1' ? searchParams.get('courseId') : '';
       const [sessionEmail, setSessionEmail] = useState(null);
-      const [users, setUsers, usersState] = useFirestoreCollection('users', []);
-      const [courses, setCourses, coursesState] = useFirestoreCollection('courses', []);
-      const [modules, setModules, modulesState] = useFirestoreCollection('modules', []);
-      const [assignments, setAssignments, assignmentsState] = useFirestoreCollection('assignments', []);
-      const [assignmentRules, setAssignmentRules, assignmentRulesState] = useFirestoreCollection('assignment_rules', []);
-      const [quizzes, setQuizzes, quizzesState] = useFirestoreCollection('quizzes', []);
-      const [progress, setProgress, progressState] = useFirestoreCollection('progress', []);
-      const [quizAttempts, setQuizAttempts, quizAttemptsState] = useFirestoreCollection('quiz_attempts', []);
-      const [certificates, setCertificates, certificatesState] = useFirestoreCollection('certificates', []);
+      const [authInitialized, setAuthInitialized] = useState(false);
+      const dataEnabled = authInitialized && !!sessionEmail;
+      const [users, setUsers, usersState] = useFirestoreCollection('users', [], dataEnabled);
+      const [courses, setCourses, coursesState] = useFirestoreCollection('courses', [], dataEnabled);
+      const [modules, setModules, modulesState] = useFirestoreCollection('modules', [], dataEnabled);
+      const [assignments, setAssignments, assignmentsState] = useFirestoreCollection('assignments', [], dataEnabled);
+      const [assignmentRules, setAssignmentRules, assignmentRulesState] = useFirestoreCollection('assignment_rules', [], dataEnabled);
+      const [quizzes, setQuizzes, quizzesState] = useFirestoreCollection('quizzes', [], dataEnabled);
+      const [progress, setProgress, progressState] = useFirestoreCollection('progress', [], dataEnabled);
+      const [quizAttempts, setQuizAttempts, quizAttemptsState] = useFirestoreCollection('quiz_attempts', [], dataEnabled);
+      const [certificates, setCertificates, certificatesState] = useFirestoreCollection('certificates', [], dataEnabled);
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
       const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
@@ -3706,9 +3709,10 @@
       const dataError = dataStates.map((state) => state.error).find(Boolean);
 
       useEffect(() => {
-        if (!window.__lmsAuth) return;
+        if (!window.__lmsAuth) { setAuthInitialized(true); return; }
         return window.__lmsAuth.onAuthStateChanged((user) => {
           setSessionEmail(user ? user.email : null);
+          setAuthInitialized(true);
           if (!user) setView('dashboard');
         });
       }, []);
@@ -3828,8 +3832,12 @@
         setView('dashboard');
       };
 
-      if (dataLoading) {
+      if (!authInitialized || (dataEnabled && dataLoading)) {
         return <LoadingScreen />;
+      }
+
+      if (!sessionEmail) {
+        return <LoginPage onLogin={login} />;
       }
 
       if (dataError) {
@@ -3843,10 +3851,6 @@
             </Panel>
           </div>
         );
-      }
-
-      if (!sessionEmail) {
-        return <LoginPage onLogin={login} />;
       }
 
       const user = users.find((item) => item.email === sessionEmail);
