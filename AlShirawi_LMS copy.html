@@ -1715,10 +1715,6 @@
           setError('Please choose a valid video file (mp4, webm, mov, etc.).');
           return;
         }
-        if (file.size > 500 * 1024 * 1024) {
-          setError('Video file is too large. Please keep uploads under 500MB.');
-          return;
-        }
         setError('');
         setVideoUploading(true);
         try {

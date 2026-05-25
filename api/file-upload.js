@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
     const [uploadUrl] = await file.getSignedUrl({
       version: 'v4',
       action: 'write',
-      expires: Date.now() + 15 * 60 * 1000,
+      expires: Date.now() + 60 * 60 * 1000,
       contentType: fileType || 'application/octet-stream',
     });
 
