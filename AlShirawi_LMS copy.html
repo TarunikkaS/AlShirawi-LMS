@@ -13,6 +13,7 @@
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, getIdToken } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+    import { getStorage, ref as storageRef, uploadBytesResumable, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
     const app = initializeApp({
       apiKey: "AIzaSyA0To1d7qSW9JF0A72qPio_gjg1lNtwEcY",
       authDomain: "gccin-222609.firebaseapp.com",
@@ -22,6 +23,7 @@
       appId: "1:923297805308:web:cc981501f867fd79faf879"
     });
     const auth = getAuth(app);
+    const fbStorage = getStorage(app);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ hd: 'equipment.ae' });
     window.__lmsAuth = {
@@ -29,6 +31,14 @@
       signOut: () => signOut(auth),
       onAuthStateChanged: (cb) => onAuthStateChanged(auth, cb),
       getToken: () => auth.currentUser ? getIdToken(auth.currentUser) : Promise.resolve(null),
+    };
+    window.__lmsStorage = {
+      uploadFile: (file, folder) => new Promise((resolve, reject) => {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100);
+        const path = `${folder}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+        const task = uploadBytesResumable(storageRef(fbStorage, path), file, { contentType: file.type || 'application/octet-stream' });
+        task.on('state_changed', null, reject, () => getDownloadURL(task.snapshot.ref).then(resolve).catch(reject));
+      }),
     };
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -720,28 +730,9 @@
       );
     };
 
-    const uploadFileToStorage = async (file) => {
-      const token = await getToken();
-      const signRes = await fetch('/api/file-upload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : '',
-        },
-        body: JSON.stringify({ fileName: file.name, fileType: file.type }),
-      });
-      if (!signRes.ok) {
-        const d = await signRes.json().catch(() => ({}));
-        throw new Error(d.error || `Could not sign upload for ${file.name}`);
-      }
-      const { uploadUrl, publicUrl } = await signRes.json();
-      const putRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error(`Upload failed for ${file.name} (${putRes.status})`);
-      return publicUrl;
+    const uploadFileToStorage = (file, folder) => {
+      if (!window.__lmsStorage) throw new Error('Firebase Storage not initialized.');
+      return window.__lmsStorage.uploadFile(file, folder || 'module-files');
     };
 
     const readFilesAsDataUrls = async (fileList) => {
@@ -794,7 +785,7 @@
     const hasPassedQuiz = (quizAttempts, email, quizId) => getQuizAttemptsFor(quizAttempts, email, quizId).some((attempt) => attempt.passed);
     const isDirectVideoFile = (url) => /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url || '');
     const isDataVideo = (url) => /^data:video\//i.test(url || '');
-    const isUploadedVideoUrl = (url) => isDataVideo(url) || /storage\.googleapis\.com\/.+\/module-videos\//i.test(url || '') || /\/storage\/v1\/object\/public\/module-videos\//i.test(url || '');
+    const isUploadedVideoUrl = (url) => isDataVideo(url) || /storage\.googleapis\.com\/.+\/module-videos\//i.test(url || '') || /\/storage\/v1\/object\/public\/module-videos\//i.test(url || '') || /firebasestorage\.googleapis\.com\/v0\/b\/.+\/o\/module-videos/i.test(url || '');
     const extractYouTubeId = (raw) => {
       try {
         const parsed = new URL(raw);
@@ -1718,33 +1709,7 @@
         setError('');
         setVideoUploading(true);
         try {
-          const signResponse = await fetch('/api/video-upload', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${await getToken() || ''}`,
-            },
-            body: JSON.stringify({ fileName: file.name, fileType: file.type }),
-          });
-          if (!signResponse.ok) {
-            const details = await signResponse.json().catch(() => ({}));
-            throw new Error(details.error || `Could not start upload (${signResponse.status}).`);
-          }
-          const { uploadUrl, publicUrl } = await signResponse.json();
-          if (!uploadUrl || !publicUrl) {
-            throw new Error('Upload URL was not returned. Check the module-videos bucket.');
-          }
-          const uploadResponse = await fetch(uploadUrl, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': file.type || 'video/mp4',
-            },
-            body: file,
-          });
-          if (!uploadResponse.ok) {
-            const text = await uploadResponse.text();
-            throw new Error(text || `Upload failed (${uploadResponse.status}).`);
-          }
+          const publicUrl = await uploadFileToStorage(file, 'module-videos');
           setForm((prev) => ({ ...prev, videoUrl: publicUrl }));
           setVideoUploadInfo({ name: file.name, size: file.size });
         } catch (err) {
@@ -1789,8 +1754,8 @@
           const next = editing.id ? modules.map((module) => module.id === editing.id ? payload : module) : [...modules, payload];
           setModules(next);
           setEditing(null);
-        } catch {
-          setError('One or more files could not be processed.');
+        } catch (err) {
+          setError(err.message || 'One or more files could not be processed.');
         }
       };
 
