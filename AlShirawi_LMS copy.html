@@ -312,7 +312,7 @@
         });
         if (!response.ok) {
           const details = await response.json().catch(() => ({}));
-          throw new Error(details.error || `Supabase request failed for ${collection}`);
+          throw new Error(details.error || `Data request failed for ${collection}`);
         }
         return response.json();
       },
@@ -320,7 +320,7 @@
         const result = await this.request(collection);
         const remoteRecords = Array.isArray(result.records) ? result.records : fallback;
         const legacyRecords = store.read(collection, []);
-        const migrationFlag = `supabase_migrated_${collection}`;
+        const migrationFlag = `firebase_migrated_${collection}`;
         if (remoteRecords.length === 0 && legacyRecords.length > 0 && !store.read(migrationFlag, false)) {
           await this.saveCollection(collection, legacyRecords);
           store.write(migrationFlag, true);
@@ -337,7 +337,7 @@
     };
 
 
-    const useSupabaseCollection = (key, fallback) => {
+    const useFirestoreCollection = (key, fallback) => {
       const [value, setValue] = useState(fallback);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState('');
@@ -353,7 +353,7 @@
             }
           })
           .catch((err) => {
-            if (active) setError(err.message || 'Unable to load LMS data from Supabase.');
+            if (active) setError(err.message || 'Unable to load LMS data from Firebase.');
           })
           .finally(() => {
             if (active) setLoading(false);
@@ -366,7 +366,7 @@
           const resolved = typeof nextValue === 'function' ? nextValue(prev) : nextValue;
           dataApi.saveCollection(key, resolved, prev).catch((err) => {
             console.error(err);
-            setError(err.message || 'Unable to save LMS data to Supabase.');
+            setError(err.message || 'Unable to save LMS data to Firebase.');
           });
           return resolved;
         });
@@ -528,7 +528,7 @@
       </Panel>
     );
 
-    const LoadingScreen = ({ message = 'Loading LMS data from Supabase...' }) => (
+    const LoadingScreen = ({ message = 'Loading LMS data...' }) => (
       <div className="page-shell flex min-h-screen items-center justify-center px-4">
         <Panel className="w-full max-w-md p-8 text-center">
           <Logo className="mx-auto h-12" />
@@ -780,7 +780,7 @@
     const hasPassedQuiz = (quizAttempts, email, quizId) => getQuizAttemptsFor(quizAttempts, email, quizId).some((attempt) => attempt.passed);
     const isDirectVideoFile = (url) => /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url || '');
     const isDataVideo = (url) => /^data:video\//i.test(url || '');
-    const isUploadedVideoUrl = (url) => isDataVideo(url) || /\/storage\/v1\/object\/public\/module-videos\//i.test(url || '');
+    const isUploadedVideoUrl = (url) => isDataVideo(url) || /storage\.googleapis\.com\/.+\/module-videos\//i.test(url || '') || /\/storage\/v1\/object\/public\/module-videos\//i.test(url || '');
     const extractYouTubeId = (raw) => {
       try {
         const parsed = new URL(raw);
@@ -1639,7 +1639,6 @@
             method: 'PUT',
             headers: {
               'Content-Type': file.type || 'video/mp4',
-              'x-upsert': 'true',
             },
             body: file,
           });
@@ -1947,7 +1946,7 @@
                 <label className={`mt-4 flex flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-sm font-semibold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50/40 ${videoUploading ? 'pointer-events-none opacity-70' : 'cursor-pointer'}`}>
                   <span className="text-2xl">＋</span>
                   <span>{videoUploading ? 'Uploading to secure storage…' : 'Click to choose an .mp4 video'}</span>
-                  <span className="text-xs font-normal text-slate-400">Up to 500 MB. Stored on Supabase Storage. Replaces any URL above.</span>
+                  <span className="text-xs font-normal text-slate-400">Up to 500 MB. Stored on Firebase Storage. Replaces any URL above.</span>
                   <input
                     ref={videoInputRef}
                     type="file"
@@ -3691,15 +3690,15 @@
       const searchParams = new URLSearchParams(window.location.search);
       const standaloneCourseId = searchParams.get('courseView') === '1' ? searchParams.get('courseId') : '';
       const [sessionEmail, setSessionEmail] = useState(null);
-      const [users, setUsers, usersState] = useSupabaseCollection('users', []);
-      const [courses, setCourses, coursesState] = useSupabaseCollection('courses', []);
-      const [modules, setModules, modulesState] = useSupabaseCollection('modules', []);
-      const [assignments, setAssignments, assignmentsState] = useSupabaseCollection('assignments', []);
-      const [assignmentRules, setAssignmentRules, assignmentRulesState] = useSupabaseCollection('assignment_rules', []);
-      const [quizzes, setQuizzes, quizzesState] = useSupabaseCollection('quizzes', []);
-      const [progress, setProgress, progressState] = useSupabaseCollection('progress', []);
-      const [quizAttempts, setQuizAttempts, quizAttemptsState] = useSupabaseCollection('quiz_attempts', []);
-      const [certificates, setCertificates, certificatesState] = useSupabaseCollection('certificates', []);
+      const [users, setUsers, usersState] = useFirestoreCollection('users', []);
+      const [courses, setCourses, coursesState] = useFirestoreCollection('courses', []);
+      const [modules, setModules, modulesState] = useFirestoreCollection('modules', []);
+      const [assignments, setAssignments, assignmentsState] = useFirestoreCollection('assignments', []);
+      const [assignmentRules, setAssignmentRules, assignmentRulesState] = useFirestoreCollection('assignment_rules', []);
+      const [quizzes, setQuizzes, quizzesState] = useFirestoreCollection('quizzes', []);
+      const [progress, setProgress, progressState] = useFirestoreCollection('progress', []);
+      const [quizAttempts, setQuizAttempts, quizAttemptsState] = useFirestoreCollection('quiz_attempts', []);
+      const [certificates, setCertificates, certificatesState] = useFirestoreCollection('certificates', []);
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
       const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
@@ -3838,9 +3837,9 @@
           <div className="page-shell flex min-h-screen items-center justify-center px-4">
             <Panel className="max-w-xl p-8">
               <Logo className="h-12" />
-              <h1 className="display-font mt-6 text-2xl font-800 text-ink">Supabase data connection failed</h1>
+              <h1 className="display-font mt-6 text-2xl font-800 text-ink">Firebase data connection failed</h1>
               <p className="mt-3 text-sm leading-6 text-slatey">{dataError}</p>
-              <p className="mt-4 text-sm text-slate-500">Check the Vercel environment variables and confirm the Supabase schema has been created.</p>
+              <p className="mt-4 text-sm text-slate-500">Check the Vercel environment variables and confirm Firebase is configured correctly.</p>
             </Panel>
           </div>
         );

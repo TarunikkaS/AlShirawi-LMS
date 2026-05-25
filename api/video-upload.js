@@ -1,15 +1,6 @@
+const { storage } = require('./firebase-admin');
 const { verifyToken } = require('./auth');
-const BUCKET = 'module-videos';
 const MAX_NAME_LEN = 160;
-
-const getConfig = () => {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing VITE_SUPABASE_URL/SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.');
-  }
-  return { supabaseUrl: supabaseUrl.replace(/\/$/, ''), serviceRoleKey };
-};
 
 const sanitizeFileName = (name) => {
   const base = String(name || 'video.mp4').split('/').pop().split('\\').pop();
@@ -24,19 +15,11 @@ const randomId = () => `${Date.now().toString(36)}-${Math.random().toString(36).
 
 module.exports = async (req, res) => {
   try {
-    if (req.method === 'OPTIONS') {
-      res.status(204).end();
-      return;
-    }
-    if (req.method !== 'POST') {
-      res.status(405).json({ error: 'Method not allowed.' });
-      return;
-    }
+    if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed.' }); return; }
 
     const sessionEmail = await verifyToken(req, res);
-    if (!sessionEmail) {
-      return;
-    }
+    if (!sessionEmail) return;
 
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const { fileName, fileType } = body;
@@ -45,44 +28,22 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const { supabaseUrl, serviceRoleKey } = getConfig();
     const safeName = sanitizeFileName(fileName);
-    const objectPath = `${randomId()}-${safeName}`;
+    const objectPath = `module-videos/${randomId()}-${safeName}`;
+    const bucket = storage.bucket();
+    const file = bucket.file(objectPath);
 
-    const signResponse = await fetch(`${supabaseUrl}/storage/v1/object/upload/sign/${BUCKET}/${objectPath}`, {
-      method: 'POST',
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({}),
+    const [uploadUrl] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'write',
+      expires: Date.now() + 15 * 60 * 1000,
+      contentType: fileType || 'video/mp4',
     });
 
-    if (!signResponse.ok) {
-      const text = await signResponse.text();
-      res.status(502).json({ error: `Could not create upload URL (${signResponse.status}): ${text}` });
-      return;
-    }
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    const publicUrl = `https://storage.googleapis.com/${bucketName}/${objectPath}`;
 
-    const signData = await signResponse.json();
-    const signedRelativeUrl = String(signData.url || '');
-    if (!signedRelativeUrl) {
-      res.status(502).json({ error: 'Supabase did not return an upload URL.' });
-      return;
-    }
-
-    const uploadUrl = signedRelativeUrl.startsWith('http')
-      ? signedRelativeUrl
-      : `${supabaseUrl}/storage/v1${signedRelativeUrl.startsWith('/') ? '' : '/'}${signedRelativeUrl}`;
-    const publicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${objectPath}`;
-
-    res.status(200).json({
-      uploadUrl,
-      publicUrl,
-      path: objectPath,
-      bucket: BUCKET,
-    });
+    res.status(200).json({ uploadUrl, publicUrl, path: objectPath, bucket: bucketName });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Video upload signing failed.' });
   }
