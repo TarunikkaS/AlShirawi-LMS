@@ -3787,6 +3787,33 @@
         if (changed) setCertificates(nextCertificates);
       }, [users, courses, modules, assignments, progress, quizzes, quizAttempts]);
 
+      useEffect(() => {
+        if (!dataEnabled || dataLoading || !sessionEmail) return;
+        if (sessionEmail === SUPER_EMAIL) return;
+        const existingUser = users.find((u) => u.email === sessionEmail);
+        if (existingUser) return;
+        if (!EMAIL_RE.test(sessionEmail)) return;
+        const newUser = {
+          id: uid(),
+          employeeId: '',
+          name: slugName(sessionEmail),
+          designation: '',
+          email: sessionEmail,
+          department: '',
+          businessLine: BUSINESS_LINES[0],
+          businessLineOther: '',
+          role: 'learner',
+          createdAt: Date.now(),
+          createdBy: 'google-signin',
+        };
+        const autoAssignments = assignmentRules
+          .filter((rule) => ruleMatchesUser(rule, newUser))
+          .filter((rule) => !assignments.some((a) => a.email === newUser.email && a.courseId === rule.courseId))
+          .map((rule) => ({ id: uid(), email: newUser.email, courseId: rule.courseId, dueDate: rule.dueDate || '', assignedAt: Date.now(), source: `Rule: ${rule.name}` }));
+        setUsers([...users, newUser]);
+        if (autoAssignments.length) setAssignments([...assignments, ...autoAssignments]);
+      }, [sessionEmail, users, dataEnabled, dataLoading]);
+
       const login = async () => {
         try {
           await window.__lmsAuth.signIn();
@@ -3874,7 +3901,19 @@
 
       const user = users.find((item) => item.email === sessionEmail);
       if (!user) {
-        return <LoginPage onLogin={login} />;
+        if (!EMAIL_RE.test(sessionEmail)) {
+          return (
+            <div className="page-shell flex min-h-screen items-center justify-center px-4">
+              <Panel className="max-w-md p-8 text-center">
+                <Logo className="mx-auto h-12" />
+                <h1 className="display-font mt-6 text-xl font-800 text-ink">Access not permitted</h1>
+                <p className="mt-3 text-sm text-slatey">Only @equipment.ae company accounts are allowed to access this LMS.</p>
+                <button onClick={logout} className="mt-6 rounded-2xl bg-slate-100 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200">Sign Out</button>
+              </Panel>
+            </div>
+          );
+        }
+        return <LoadingScreen message="Setting up your account…" />;
       }
 
       const adminLike = ['superadmin', 'admin', 'hr'].includes(user.role);
