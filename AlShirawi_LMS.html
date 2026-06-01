@@ -1772,7 +1772,7 @@
         try {
           const res = await fetch('/api/fetch-image', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-LMS-Session-Email': readSession() || '' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await getToken() || ''}` },
             body: JSON.stringify({ keyword: kw, label: imgGenLabel.trim() || kw }),
           });
           const data = await res.json();
@@ -1804,7 +1804,7 @@
         try {
           const res = await fetch('/api/generate-modules', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-LMS-Session-Email': readSession() || '' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await getToken() || ''}` },
             body: JSON.stringify({
               courseTitle: course.title,
               courseDescription: course.description,
@@ -2520,7 +2520,7 @@
         try {
           const res = await fetch('/api/generate-quiz', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-LMS-Session-Email': readSession() || '' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await getToken() || ''}` },
             body: JSON.stringify({ quizTitle: form.title, scopeTitle, scopeType: form.scopeType, numQuestions: quizGenCount }),
           });
           const data = await res.json();
