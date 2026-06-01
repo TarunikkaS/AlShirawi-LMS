@@ -1826,13 +1826,16 @@
 
       const addGeneratedModules = () => {
         if (!aiResult || !aiCourseId) return;
-        const existingCount = modules.filter((m) => m.courseId === aiCourseId).length;
-        const newModules = aiResult.map((mod, i) => ({
+        const existing = modules.filter((m) => m.courseId === aiCourseId);
+        const existingTitles = new Set(existing.map((m) => m.title.trim().toLowerCase()));
+        const toAdd = aiResult.filter((mod) => !existingTitles.has((mod.title || '').trim().toLowerCase()));
+        if (!toAdd.length) return;
+        const newModules = toAdd.map((mod, i) => ({
           id: uid(),
           courseId: aiCourseId,
           title: mod.title,
           description: mod.description,
-          order: existingCount + i + 1,
+          order: existing.length + i + 1,
           videoUrl: '',
           notes: mod.notes || '',
           applicability: { designationKeyword: '', departmentKeyword: '', businessLines: [] },
