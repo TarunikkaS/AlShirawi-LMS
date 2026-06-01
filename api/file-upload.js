@@ -1,5 +1,5 @@
-const { storage } = require('./firebase-admin');
-const { verifyToken } = require('./auth');
+const { storage } = require('./_firebase-admin');
+const { verifyToken } = require('./_auth');
 const MAX_NAME_LEN = 160;
 
 const sanitizeFileName = (name) => {

@@ -1,5 +1,5 @@
-const { db } = require('./firebase-admin');
-const { verifyToken } = require('./auth');
+const { db } = require('./_firebase-admin');
+const { verifyToken } = require('./_auth');
 
 const COLLECTIONS = [
   'users', 'courses', 'modules', 'assignments',

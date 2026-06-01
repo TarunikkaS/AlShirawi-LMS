@@ -1,4 +1,4 @@
-const { verifyToken } = require('./auth');
+const { verifyToken } = require('./_auth');
 const GEMINI_MODELS = [
   'gemini-2.0-flash-lite',
   'gemini-2.0-flash',

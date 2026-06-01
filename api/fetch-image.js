@@ -1,4 +1,4 @@
-const { verifyToken } = require('./auth');
+const { verifyToken } = require('./_auth');
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed.' }); return; }
