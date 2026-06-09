@@ -261,6 +261,22 @@
       'Atlas Services',
       'Other',
     ];
+    // In-memory sample learner used only for the admin "Preview as Learner"
+    // mode. It is never written to the database.
+    const SAMPLE_LEARNER = {
+      id: 'sample-learner',
+      employeeId: 'ALS-EMP-DEMO',
+      name: 'Sample Learner',
+      designation: 'Trainee',
+      email: 'sample.learner@equipment.ae',
+      department: 'Learning & Development',
+      businessLine: 'Al Shirawi Equipment Co. – Process Equipment Division',
+      businessLineOther: '',
+      role: 'learner',
+      createdAt: 0,
+      createdBy: 'system-preview',
+    };
+
     const COURSE_TYPES = ['Essential', 'Desirable'];
     const TRAINING_TYPES = ['Behavioral', 'Functional'];
     const BEHAVIORAL_FOCUS = ['Communication', 'Personality Development'];
@@ -389,6 +405,10 @@
 
     const Logo = ({ className = 'h-9', mono = false }) => (
       <img src="LOGO.jpg" alt="Al Shirawi" className={`${className} object-contain ${mono ? 'brightness-0 invert' : ''}`} />
+    );
+
+    const LmsLogo = ({ className = 'h-9' }) => (
+      <img src="lms-logo.png" alt="Al Shirawi Equipment Group LMS" className={`${className} object-contain`} />
     );
 
     const Button = ({ children, onClick, type = 'button', tone = 'primary', variant = 'solid', className = '', disabled = false }) => {
@@ -913,55 +933,140 @@
       };
     };
 
-    const createPdfCertificate = ({ learner, course, certificate }) => {
+    // ============================================================
+    //  CERTIFICATE TEMPLATE
+    //  Background = certificate-template.png (export of your design
+    //  WITHOUT the NAME / Course Name / Date / Number values).
+    //  Dynamic values are overlaid on top at the positions below.
+    // ============================================================
+    const CERT_TEMPLATE_SRC = 'certificate-template.png';
+
+    // >>> SIGNATURES — paste image URLs here when you have them.
+    //     Leave '' to keep blank space above the printed names.
+    const CERT_SIGNATURES = {
+      left: '',   // appears above "UDAYA KUMAR B / LMS - Program Manager"
+      right: '',  // appears above "ROBERT FERNANDES / HR Head"
+    };
+
+    // Overlay positions as % of the template (top/left = % of width/height).
+    // size = font height as a fraction of template width. Tweak to line up
+    // with your exported certificate-template.png.
+    const CERT_FIELDS = {
+      name:       { top: 52.5, left: 50,   align: 'center', size: 0.040, bold: true,  serif: true, color: '#1f2937' },
+      course:     { top: 64.5, left: 50,   align: 'center', size: 0.034, bold: true,  serif: true, color: '#1f2937' },
+      date:       { top: 71.7, left: 16.5, align: 'left',   size: 0.024, bold: false, serif: true, color: '#111827' },
+      employeeId: { top: 76.0, left: 16.5, align: 'left',   size: 0.024, bold: false, serif: true, color: '#111827' },
+    };
+    // Signature image slots — bottom/left as % of template, width as % of width.
+    const CERT_SIGN_SLOTS = {
+      left:  { bottom: 13.5, left: 25.6, width: 14 },
+      right: { bottom: 13.5, left: 73.8, width: 14 },
+    };
+
+    const loadImg = (src, crossOrigin) => new Promise((resolve, reject) => {
+      const img = new Image();
+      if (crossOrigin) img.crossOrigin = crossOrigin;
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Image load failed: ' + src));
+      img.src = src;
+    });
+
+    const hexToRgb = (hex) => {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [17, 24, 39];
+    };
+
+    const certFieldStyle = (cfg) => ({
+      position: 'absolute',
+      top: `${cfg.top}%`,
+      left: `${cfg.left}%`,
+      transform: cfg.align === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)',
+      textAlign: cfg.align,
+      fontSize: `${cfg.size * 100}cqw`,
+      lineHeight: 1,
+      fontWeight: cfg.bold ? 700 : 500,
+      color: cfg.color,
+      fontFamily: cfg.serif ? "'Times New Roman', Times, serif" : 'inherit',
+      whiteSpace: 'nowrap',
+      pointerEvents: 'none',
+    });
+
+    const certSigStyle = (slot) => ({
+      position: 'absolute',
+      bottom: `${slot.bottom}%`,
+      left: `${slot.left}%`,
+      width: `${slot.width}cqw`,
+      transform: 'translateX(-50%)',
+      objectFit: 'contain',
+      pointerEvents: 'none',
+    });
+
+    // On-screen certificate that exactly mirrors the PDF layout.
+    const CertificateView = ({ name, course, date, employeeId, className = '' }) => (
+      <div className={`relative w-full overflow-hidden bg-white ${className}`} style={{ containerType: 'inline-size' }}>
+        <img src={CERT_TEMPLATE_SRC} alt="Certificate" className="block w-full" />
+        <div style={certFieldStyle(CERT_FIELDS.name)}>{name}</div>
+        <div style={certFieldStyle(CERT_FIELDS.course)}>{course}</div>
+        <div style={certFieldStyle(CERT_FIELDS.date)}>{date}</div>
+        <div style={certFieldStyle(CERT_FIELDS.employeeId)}>{employeeId}</div>
+        {CERT_SIGNATURES.left && <img src={CERT_SIGNATURES.left} alt="" style={certSigStyle(CERT_SIGN_SLOTS.left)} />}
+        {CERT_SIGNATURES.right && <img src={CERT_SIGNATURES.right} alt="" style={certSigStyle(CERT_SIGN_SLOTS.right)} />}
+      </div>
+    );
+
+    const createPdfCertificate = async ({ learner, course, certificate }) => {
       const jsPDF = window.jspdf && window.jspdf.jsPDF;
       if (!jsPDF) {
         alert('PDF library is unavailable.');
         return;
       }
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      doc.setFillColor(248, 250, 252);
-      doc.rect(0, 0, 842, 595, 'F');
-      doc.setDrawColor(29, 78, 216);
-      doc.setLineWidth(4);
-      doc.rect(28, 28, 786, 539);
-      doc.setDrawColor(15, 118, 110);
-      doc.setLineWidth(1);
-      doc.rect(40, 40, 762, 515);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.text('AL SHIRAWI EQUIPMENT CO LMS', 421, 88, { align: 'center' });
-      doc.setFontSize(34);
-      doc.text('Certificate of Completion', 421, 160, { align: 'center' });
-      doc.setTextColor(71, 85, 105);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(16);
-      doc.text('This certifies that', 421, 214, { align: 'center' });
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('times', 'bold');
-      doc.setFontSize(30);
-      doc.text(learner.name, 421, 264, { align: 'center' });
-      doc.setTextColor(71, 85, 105);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(16);
-      doc.text('has successfully completed the training course', 421, 304, { align: 'center' });
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(24);
-      doc.text(course.title, 421, 350, { align: 'center' });
-      doc.setTextColor(71, 85, 105);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(15);
-      doc.text(`Issued on ${fmtDate(certificate.issuedAt)} | Badge awarded: ${certificate.badgeTitle}`, 421, 400, { align: 'center' });
-      doc.text(`Employee ID: ${learner.employeeId} | Company email: ${learner.email}`, 421, 430, { align: 'center' });
-      doc.setDrawColor(29, 78, 216);
-      doc.line(126, 500, 316, 500);
-      doc.line(526, 500, 716, 500);
-      doc.setFontSize(12);
-      doc.text('LMS Approval', 221, 520, { align: 'center' });
-      doc.text('Completion Record', 621, 520, { align: 'center' });
-      doc.save(`${course.title.replace(/[^a-z0-9]+/gi, '_')}_certificate.pdf`);
+      let templateImg;
+      try {
+        templateImg = await loadImg(CERT_TEMPLATE_SRC);
+      } catch (e) {
+        alert('Certificate template (certificate-template.png) was not found. Add it to the project folder to enable certificate downloads.');
+        return;
+      }
+      const W = templateImg.naturalWidth || 1456;
+      const H = templateImg.naturalHeight || 816;
+      const doc = new jsPDF({ orientation: W >= H ? 'landscape' : 'portrait', unit: 'px', format: [W, H] });
+      doc.addImage(templateImg, 'PNG', 0, 0, W, H);
+
+      const drawField = (cfg, text) => {
+        if (text === undefined || text === null || text === '') return;
+        const sizePt = cfg.size * W * 0.75; // px height -> pt
+        const [r, g, b] = hexToRgb(cfg.color);
+        doc.setTextColor(r, g, b);
+        doc.setFont(cfg.serif ? 'times' : 'helvetica', cfg.bold ? 'bold' : 'normal');
+        doc.setFontSize(sizePt);
+        const x = (cfg.left / 100) * W;
+        const y = (cfg.top / 100) * H + sizePt * 0.35; // shift baseline toward the vertical centre
+        doc.text(String(text), x, y, { align: cfg.align });
+      };
+
+      drawField(CERT_FIELDS.name, learner.name);
+      drawField(CERT_FIELDS.course, course.title);
+      drawField(CERT_FIELDS.date, fmtDate(certificate.issuedAt));
+      drawField(CERT_FIELDS.employeeId, learner.employeeId);
+
+      for (const side of ['left', 'right']) {
+        const url = CERT_SIGNATURES[side];
+        if (!url) continue;
+        try {
+          const sImg = await loadImg(url, 'anonymous');
+          const slot = CERT_SIGN_SLOTS[side];
+          const w = (slot.width / 100) * W;
+          const ratio = (sImg.naturalHeight / sImg.naturalWidth) || 0.4;
+          const h = w * ratio;
+          const x = (slot.left / 100) * W - w / 2;
+          const y = H - (slot.bottom / 100) * H - h;
+          doc.addImage(sImg, 'PNG', x, y, w, h);
+        } catch (e) {
+          /* signature unavailable or blocked by CORS — skip it */
+        }
+      }
+
+      doc.save(`${(course.title || 'certificate').replace(/[^a-z0-9]+/gi, '_')}_certificate.pdf`);
     };
 
     const GoogleIcon = () => (
@@ -992,8 +1097,10 @@
 
       const leftPanel = (
         <div className="relative flex flex-col justify-between p-10 rounded-3xl lg:rounded-r-none" style={{background:'linear-gradient(135deg,#1e3a8a 0%,#1d4ed8 60%,#2563eb 100%)'}}>
-          <div className="inline-flex rounded-2xl bg-white px-4 py-2 shadow-soft self-start">
+          <div className="inline-flex items-center gap-3 rounded-2xl bg-white px-4 py-2 shadow-soft self-start">
             <Logo className="h-12 w-auto" />
+            <span className="h-10 w-px bg-slate-200" />
+            <LmsLogo className="h-12 w-auto" />
           </div>
           <div className="mt-10">
             <h1 className="display-font text-3xl font-800 leading-tight text-white">Al Shirawi Equipment Co<br/>Learning Management<br/>System</h1>
@@ -1081,7 +1188,7 @@
         </div>
       );
     };
-    const Header = ({ user, onToggleNav, onLogout, onProfile }) => (
+    const Header = ({ user, onToggleNav, onLogout, onProfile, canPreviewLearner, onPreviewLearner }) => (
       <header className="sticky top-0 z-30 border-b border-white/70 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-4 py-4 md:px-6">
           <button onClick={onToggleNav} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 lg:hidden">Menu</button>
@@ -1102,6 +1209,9 @@
             <button onClick={onProfile} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-tealish text-sm font-bold text-white shadow-soft">
               {(user.name || '?')[0].toUpperCase()}
             </button>
+            {canPreviewLearner && (
+              <Button tone="slate" variant="soft" onClick={onPreviewLearner}>👁 Preview as Learner</Button>
+            )}
             <Button tone="slate" variant="soft" onClick={onLogout}>Sign Out</Button>
           </div>
         </div>
@@ -3760,7 +3870,16 @@
                 return (
                   <Panel key={certificate.id} className="certificate-bg overflow-hidden">
                     <div className="h-2 bg-gradient-to-r from-brand via-tealish to-amberish" />
-                    <div className="p-6">
+                    <div className="p-5">
+                      <CertificateView
+                        name={learnerName}
+                        course={course?.title || certificate.courseTitle}
+                        date={fmtDate(certificate.issuedAt)}
+                        employeeId={certificate.employeeId}
+                        className="rounded-xl border border-slate-100 shadow-soft"
+                      />
+                    </div>
+                    <div className="px-6 pb-6">
                       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div className="flex flex-wrap gap-2">
@@ -3843,6 +3962,7 @@
       const [certificates, setCertificates, certificatesState] = useFirestoreCollection('certificates', [], dataEnabled);
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
+      const [previewLearner, setPreviewLearner] = useState(false);
       const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
       const dataLoading = dataStates.some((state) => state.loading);
       const dataError = dataStates.map((state) => state.error).find(Boolean);
@@ -4023,8 +4143,8 @@
         );
       }
 
-      const user = users.find((item) => item.email === sessionEmail);
-      if (!user) {
+      const realUser = users.find((item) => item.email === sessionEmail);
+      if (!realUser) {
         if (!EMAIL_RE.test(sessionEmail)) {
           return (
             <div className="page-shell flex min-h-screen items-center justify-center px-4">
@@ -4039,6 +4159,21 @@
         }
         return <LoginPage onLogin={login} onCreateWithEmployeeId={createWithEmployeeId} pendingEmail={sessionEmail} onSignOut={logout} />;
       }
+
+      const realAdminLike = ['superadmin', 'admin', 'hr'].includes(realUser.role);
+      const inPreview = previewLearner && realAdminLike;
+      // While previewing, the whole UI renders as the in-memory sample learner.
+      const user = inPreview ? SAMPLE_LEARNER : realUser;
+
+      // Sample data injected only during preview (never persisted) so the
+      // learner views and a certificate have something to show.
+      const sampleSourceCourse = courses[0];
+      const previewAssignments = inPreview && sampleSourceCourse
+        ? [...assignments, { id: 'sample-assignment', email: SAMPLE_LEARNER.email, courseId: sampleSourceCourse.id, dueDate: '', assignedAt: Date.now(), source: 'Preview sample', assignmentType: 'Essential' }]
+        : assignments;
+      const previewCertificates = inPreview && sampleSourceCourse
+        ? [...certificates, { id: 'sample-cert', email: SAMPLE_LEARNER.email, learnerName: SAMPLE_LEARNER.name, employeeId: SAMPLE_LEARNER.employeeId, courseId: sampleSourceCourse.id, courseTitle: sampleSourceCourse.title, courseType: sampleSourceCourse.type, badgeTitle: `${sampleSourceCourse.title} Completion Badge`, issuedAt: Date.now(), emailStatus: `Certificate sent to ${SAMPLE_LEARNER.email}` }]
+        : certificates;
 
       const adminLike = ['superadmin', 'admin', 'hr'].includes(user.role);
       const openCourseInNewTab = (courseId) => {
@@ -4064,10 +4199,10 @@
           if (view === 'reports') return <Reports users={users} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} quizAttempts={quizAttempts} progress={progress} certificates={certificates} />;
           if (view === 'recognition') return <RecognitionHub viewer={user} courses={courses} certificates={certificates} />;
         }
-        if (view === 'dashboard') return <LearnerDashboard user={user} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} certificates={certificates} onOpenCourse={openCourseInNewTab} />;
-        if (view === 'my-courses') return <LearnerCourses user={user} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} onOpenCourse={openCourseInNewTab} />;
-        if (view === 'progress') return <LearnerProgress user={user} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} certificates={certificates} />;
-        if (view === 'recognition') return <RecognitionHub viewer={user} courses={courses} certificates={certificates} />;
+        if (view === 'dashboard') return <LearnerDashboard user={user} courses={courses} assignments={previewAssignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} certificates={previewCertificates} onOpenCourse={openCourseInNewTab} />;
+        if (view === 'my-courses') return <LearnerCourses user={user} courses={courses} assignments={previewAssignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} onOpenCourse={openCourseInNewTab} />;
+        if (view === 'progress') return <LearnerProgress user={user} courses={courses} assignments={previewAssignments} modules={modules} quizzes={quizzes} progress={progress} quizAttempts={quizAttempts} certificates={previewCertificates} />;
+        if (view === 'recognition') return <RecognitionHub viewer={user} courses={courses} certificates={previewCertificates} />;
         return <ProfilePage user={user} />;
       };
 
@@ -4092,7 +4227,20 @@
 
       return (
         <div className="page-shell min-h-screen">
-          <Header user={user} onToggleNav={() => setNavOpen((prev) => !prev)} onLogout={logout} onProfile={() => setView('profile')} />
+          {inPreview && (
+            <div className="sticky top-0 z-40 flex items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-soft md:px-6">
+              <span>👁 Previewing as <strong>{SAMPLE_LEARNER.name}</strong> — this is the learner's view (sample data, nothing is saved).</span>
+              <button onClick={() => { setPreviewLearner(false); setView('dashboard'); }} className="shrink-0 rounded-xl bg-white/20 px-3 py-1.5 font-bold hover:bg-white/30">Exit preview</button>
+            </div>
+          )}
+          <Header
+            user={user}
+            onToggleNav={() => setNavOpen((prev) => !prev)}
+            onLogout={logout}
+            onProfile={() => setView('profile')}
+            canPreviewLearner={realAdminLike && !inPreview}
+            onPreviewLearner={() => { setPreviewLearner(true); setView('dashboard'); }}
+          />
           {saveToast && (
             <div className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 shadow-lg">
               <span className="flex-1 text-sm text-red-700">Save failed: {saveToast}</span>
