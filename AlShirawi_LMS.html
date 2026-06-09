@@ -3227,6 +3227,55 @@
       );
     };
 
+    // Full-screen congratulations popup shown when a learner completes a course.
+    const CourseCompleteCelebration = ({ courseTitle, learnerName, onClose }) => {
+      const pieces = useMemo(() => {
+        const palette = ['#f43f5e', '#f59e0b', '#10b981', '#2563eb', '#a855f7', '#ec4899', '#facc15'];
+        return Array.from({ length: 60 }).map((_, index) => ({
+          id: index,
+          left: Math.random() * 100,
+          drift: (Math.random() * 200 - 100).toFixed(0) + 'px',
+          delay: (Math.random() * 1.2).toFixed(2),
+          duration: (1.8 + Math.random() * 1.8).toFixed(2),
+          color: palette[index % palette.length],
+          rotate: Math.floor(Math.random() * 360),
+        }));
+      }, []);
+      return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 px-4 backdrop-blur-sm" onClick={onClose}>
+          <div className="confetti-layer" aria-hidden="true">
+            {pieces.map((piece) => (
+              <span
+                key={piece.id}
+                className="confetti-piece"
+                style={{
+                  left: piece.left + '%',
+                  background: piece.color,
+                  '--drift': piece.drift,
+                  animationDelay: piece.delay + 's',
+                  animationDuration: piece.duration + 's',
+                  transform: `rotate(${piece.rotate}deg)`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="celebrate-card relative w-full max-w-md rounded-[28px] border border-emerald-200 p-8 text-center shadow-float" onClick={(e) => e.stopPropagation()}>
+            <div className="text-5xl md:text-6xl">
+              <span className="celebrate-emoji">🎉</span>
+              <span className="celebrate-emoji delay-1 mx-2">🥳</span>
+              <span className="celebrate-emoji delay-2">🎊</span>
+            </div>
+            <div className="display-font celebrate-title mt-5 text-3xl font-800 md:text-4xl">CONGRATULATIONS!</div>
+            <p className="mt-3 text-base font-semibold text-emerald-800">{learnerName ? `${learnerName}, you` : 'You'} completed “{courseTitle}”.</p>
+            <p className="mt-2 text-sm text-emerald-700/80">Your certificate is now available in <span className="font-semibold">Certificates &amp; Badges</span>.</p>
+            <button onClick={onClose} className="mt-6 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-emerald-700">
+              Awesome!
+            </button>
+          </div>
+        </div>
+      );
+    };
+
     const QuizPlayer = ({ user, quiz, quizAttempts, setQuizAttempts, onClose, course, modules, assignments, progress, quizzes }) => {
       const [answers, setAnswers] = useState({});
       const [submitted, setSubmitted] = useState(false);
@@ -3539,8 +3588,20 @@
         });
       };
 
+      // Show a one-time congratulations popup the moment the course flips to
+      // completed (covers quiz completion and scroll completion alike).
+      const [showCongrats, setShowCongrats] = useState(false);
+      const wasCompletedRef = useRef(status.completed);
+      useEffect(() => {
+        if (status.completed && !wasCompletedRef.current) setShowCongrats(true);
+        wasCompletedRef.current = status.completed;
+      }, [status.completed]);
+
       return (
         <>
+          {showCongrats && !openQuiz && (
+            <CourseCompleteCelebration courseTitle={course.title} learnerName={user.name} onClose={() => setShowCongrats(false)} />
+          )}
           <div className="space-y-8">
             <Reveal>
               <div className="relative overflow-hidden rounded-[28px] border border-slate-100 bg-gradient-to-br from-white via-slate-50 to-blue-50 p-6 shadow-soft md:p-8">
@@ -3606,32 +3667,6 @@
                 </div>
               </div>
             </Reveal>
-
-            {status.completed && (
-              <Reveal>
-                <div className="rounded-[28px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-6 shadow-soft md:p-8">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-emerald-600">Course Complete</div>
-                      <h3 className="display-font mt-2 text-2xl font-800 text-ink md:text-3xl">🎓 Your Certificate</h3>
-                      <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">Congratulations, {user.name}! You've completed every part of this course.</p>
-                    </div>
-                    <Button onClick={() => createPdfCertificate({ learner: { name: user.name, employeeId: user.employeeId, email: user.email }, course, certificate: { issuedAt: Date.now() } })}>
-                      Download PDF Certificate
-                    </Button>
-                  </div>
-                  <div className="mt-5">
-                    <CertificateView
-                      name={user.name}
-                      course={course.title}
-                      date={fmtDate(Date.now())}
-                      employeeId={user.employeeId}
-                      className="rounded-xl border border-slate-100 shadow-soft"
-                    />
-                  </div>
-                </div>
-              </Reveal>
-            )}
           </div>
           {openQuiz && (
             <QuizPlayer
