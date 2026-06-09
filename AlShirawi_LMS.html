@@ -4217,7 +4217,8 @@
       // Management; those persist by email and show up here in preview.
       // We only inject a throwaway sample assignment / certificate when the
       // Sample Learner has none of its own yet, so the view isn't empty.
-      const sampleSourceCourse = courses[0];
+      const sampleAssignedCourseId = assignments.find((a) => a.email === SAMPLE_LEARNER.email)?.courseId;
+      const sampleSourceCourse = courses.find((c) => c.id === sampleAssignedCourseId) || courses[0];
       const sampleHasRealAssignment = assignments.some((a) => a.email === SAMPLE_LEARNER.email);
       const sampleHasRealCert = certificates.some((c) => c.email === SAMPLE_LEARNER.email);
       const previewAssignments = inPreview && sampleSourceCourse && !sampleHasRealAssignment
