@@ -3606,6 +3606,32 @@
                 </div>
               </div>
             </Reveal>
+
+            {status.completed && (
+              <Reveal>
+                <div className="rounded-[28px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-6 shadow-soft md:p-8">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-[0.32em] text-emerald-600">Course Complete</div>
+                      <h3 className="display-font mt-2 text-2xl font-800 text-ink md:text-3xl">🎓 Your Certificate</h3>
+                      <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">Congratulations, {user.name}! You've completed every part of this course.</p>
+                    </div>
+                    <Button onClick={() => createPdfCertificate({ learner: { name: user.name, employeeId: user.employeeId, email: user.email }, course, certificate: { issuedAt: Date.now() } })}>
+                      Download PDF Certificate
+                    </Button>
+                  </div>
+                  <div className="mt-5">
+                    <CertificateView
+                      name={user.name}
+                      course={course.title}
+                      date={fmtDate(Date.now())}
+                      employeeId={user.employeeId}
+                      className="rounded-xl border border-slate-100 shadow-soft"
+                    />
+                  </div>
+                </div>
+              </Reveal>
+            )}
           </div>
           {openQuiz && (
             <QuizPlayer
@@ -4266,17 +4292,24 @@
 
       // Real courses can be assigned to the Sample Learner from Assignment
       // Management; those persist by email and show up here in preview.
-      // We only inject a throwaway sample assignment / certificate when the
-      // Sample Learner has none of its own yet, so the view isn't empty.
+      // We inject a throwaway sample assignment when the Sample Learner has
+      // none yet, so the learner views aren't empty.
       const sampleAssignedCourseId = assignments.find((a) => a.email === SAMPLE_LEARNER.email)?.courseId;
       const sampleSourceCourse = courses.find((c) => c.id === sampleAssignedCourseId) || courses[0];
       const sampleHasRealAssignment = assignments.some((a) => a.email === SAMPLE_LEARNER.email);
-      const sampleHasRealCert = certificates.some((c) => c.email === SAMPLE_LEARNER.email);
       const previewAssignments = inPreview && sampleSourceCourse && !sampleHasRealAssignment
         ? [...assignments, { id: 'sample-assignment', email: SAMPLE_LEARNER.email, courseId: sampleSourceCourse.id, dueDate: '', assignedAt: Date.now(), source: 'Preview sample', assignmentType: 'Essential' }]
         : assignments;
-      const previewCertificates = inPreview && sampleSourceCourse && !sampleHasRealCert
-        ? [...certificates, { id: 'sample-cert', email: SAMPLE_LEARNER.email, learnerName: SAMPLE_LEARNER.name, employeeId: SAMPLE_LEARNER.employeeId, courseId: sampleSourceCourse.id, courseTitle: sampleSourceCourse.title, courseType: sampleSourceCourse.type, badgeTitle: `${sampleSourceCourse.title} Completion Badge`, issuedAt: Date.now(), emailStatus: `Certificate sent to ${SAMPLE_LEARNER.email}` }]
+      // A preview certificate is shown only for courses the Sample Learner has
+      // actually COMPLETED — mirroring how real certificates are issued.
+      const previewCertificates = inPreview
+        ? [...certificates, ...previewAssignments
+            .filter((a) => a.email === SAMPLE_LEARNER.email)
+            .map((a) => courses.find((c) => c.id === a.courseId))
+            .filter(Boolean)
+            .filter((course) => !certificates.some((c) => c.email === SAMPLE_LEARNER.email && c.courseId === course.id))
+            .filter((course) => courseStatusForUser({ user: SAMPLE_LEARNER, course, modules, assignments: previewAssignments, progress, quizzes, quizAttempts }).completed)
+            .map((course) => ({ id: `sample-cert-${course.id}`, email: SAMPLE_LEARNER.email, learnerName: SAMPLE_LEARNER.name, employeeId: SAMPLE_LEARNER.employeeId, courseId: course.id, courseTitle: course.title, courseType: course.type, badgeTitle: `${course.title} Completion Badge`, issuedAt: Date.now(), emailStatus: `Certificate sent to ${SAMPLE_LEARNER.email}` }))]
         : certificates;
 
       const adminLike = ['superadmin', 'admin', 'hr'].includes(user.role);
