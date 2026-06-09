@@ -1217,20 +1217,19 @@
       <header className="sticky top-0 z-30 border-b border-white/70 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-4 py-4 md:px-6">
           <button onClick={onToggleNav} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 lg:hidden">Menu</button>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-slate-50 px-3 py-2 shadow-soft">
               <Logo className="h-8 w-auto" />
             </div>
-            <div>
+            <div className="rounded-2xl bg-slate-50 px-3 py-2 shadow-soft">
+              <LmsLogo className="h-12 w-auto" />
+            </div>
+            <div className="ml-1">
               <div className="display-font text-lg font-800 text-ink">Al Shirawi Equipment Co LMS</div>
               <div className="text-xs font-medium uppercase tracking-[0.22em] text-slate-400">Learning Management System</div>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <div className="hidden rounded-xl bg-slate-50 px-2.5 py-1.5 shadow-soft sm:block">
-              <LmsLogo className="h-9 w-auto" />
-            </div>
-            <span className="hidden h-9 w-px bg-slate-200 sm:block" />
             <div className="hidden text-right md:block">
               <div className="text-sm font-semibold text-ink">{user.name}</div>
               <div className="text-xs text-slate-500">{roleLabel(user.role)} • {user.email}</div>
@@ -1631,7 +1630,7 @@
         const payload = {
           id: isEditing ? editing.id : uid(),
           title: clean(form.title, 160),
-          description: clean(form.description, 800),
+          description: clean(form.description, 100000),
           type: form.type,
           trainingType: form.trainingType,
           focusArea: form.focusArea,
@@ -1705,7 +1704,7 @@
                       <Tag tone="slate">{course.focusArea}</Tag>
                     </div>
                     <h3 className="display-font mt-4 text-xl font-800 text-ink">{course.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-slatey">{course.description || 'No description added yet.'}</p>
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slatey">{course.description || 'No description added yet.'}</p>
                     <div className="mt-5 flex gap-3">
                       <Button variant="soft" onClick={() => openEdit(course)}>Edit</Button>
                       <Button variant="soft" tone="danger" onClick={() => remove(course.id)}>Delete</Button>
@@ -1768,6 +1767,8 @@
       const [editing, setEditing] = useState(null);
       const [form, setForm] = useState(blankForm);
       const [pendingDocs, setPendingDocs] = useState([]);
+      const [docLinkUrl, setDocLinkUrl] = useState('');
+      const [docLinkName, setDocLinkName] = useState('');
       const [pendingImages, setPendingImages] = useState([]);
       const [videoUploadInfo, setVideoUploadInfo] = useState(null);
       const [videoUploading, setVideoUploading] = useState(false);
@@ -1813,6 +1814,8 @@
           images: [],
         });
         setPendingDocs([]);
+        setDocLinkUrl('');
+        setDocLinkName('');
         setPendingImages([]);
         setVideoUploadInfo(null);
         setError('');
@@ -1827,6 +1830,8 @@
           images: module.images || [],
         });
         setPendingDocs([]);
+        setDocLinkUrl('');
+        setDocLinkName('');
         setPendingImages([]);
         setVideoUploadInfo(isUploadedVideoUrl(module.videoUrl) ? { name: 'Uploaded video file', size: 0 } : null);
         setError('');
@@ -1852,6 +1857,20 @@
           setError('');
         }
         setPendingDocs((prev) => [...prev, ...additions]);
+      };
+      const addDocLink = () => {
+        let url = docLinkUrl.trim();
+        if (!url) { setError('Paste a document link first.'); return; }
+        if ((form.documents || []).length + pendingDocs.length >= MAX_MODULE_DOCS) {
+          setError(`You can attach a maximum of ${MAX_MODULE_DOCS} documents per module.`);
+          return;
+        }
+        if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+        const name = clean(docLinkName, 160) || url.replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
+        setForm((prev) => ({ ...prev, documents: [...(prev.documents || []), { id: uid(), name, url, mimeType: 'link', isLink: true }] }));
+        setDocLinkUrl('');
+        setDocLinkName('');
+        setError('');
       };
       const onImageFileChange = (files) => {
         const additions = Array.from(files || []).map((file) => ({
@@ -2261,6 +2280,33 @@
                         </label>
                       );
                     })()}
+                    <div className="mt-3 rounded-[20px] border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Or add a document link</div>
+                      <p className="mt-1 text-xs text-slate-400">Paste a link (Google Drive, SharePoint, website, etc.). Learners can open it from the module.</p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-[1.4fr_1fr_auto]">
+                        <input
+                          value={docLinkUrl}
+                          onChange={(e) => setDocLinkUrl(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDocLink(); } }}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                          placeholder="https://link-to-document"
+                        />
+                        <input
+                          value={docLinkName}
+                          onChange={(e) => setDocLinkName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDocLink(); } }}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                          placeholder="Label (optional)"
+                        />
+                        <button
+                          type="button"
+                          onClick={addDocLink}
+                          className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                        >
+                          Add link
+                        </button>
+                      </div>
+                    </div>
                     {pendingDocs.length > 0 && (
                       <div className="mt-4 space-y-2 rounded-[20px] bg-white p-4 shadow-soft">
                         <div className="flex items-center justify-between">
@@ -2284,7 +2330,7 @@
                         <div className="flex flex-wrap gap-2">
                           {(form.documents || []).map((file) => (
                             <span key={file.id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-soft">
-                              {file.name}
+                              <span aria-hidden="true">{file.isLink ? '🔗' : '📄'}</span>{file.name}
                               <button type="button" onClick={() => removeAsset('documents', file.id)} className="text-red-600">×</button>
                             </span>
                           ))}
@@ -3421,8 +3467,15 @@
                 <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">Downloads</div>
                 <div className="flex flex-wrap gap-3">
                   {module.documents.map((file) => (
-                    <a key={file.id} href={file.dataUrl || file.url} download={file.name} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-soft">
-                      <span aria-hidden="true">↓</span>{file.name}
+                    <a
+                      key={file.id}
+                      href={file.dataUrl || file.url}
+                      {...(file.isLink
+                        ? { target: '_blank', rel: 'noopener noreferrer' }
+                        : { download: file.name })}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-soft"
+                    >
+                      <span aria-hidden="true">{file.isLink ? '🔗' : '↓'}</span>{file.name}
                     </a>
                   ))}
                 </div>
@@ -3504,7 +3557,7 @@
                       <Tag tone="blue">{course.trainingType}</Tag>
                       <Tag tone="slate">{course.focusArea}</Tag>
                     </div>
-                    <p className="mt-5 text-base leading-7 text-slate-600">{course.description || 'No course description added yet.'}</p>
+                    <p className="mt-5 whitespace-pre-wrap text-base leading-7 text-slate-600">{course.description || 'No course description added yet.'}</p>
                     <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
                       <span>{visibleModules.length} {visibleModules.length === 1 ? 'Module' : 'Modules'}</span>
                       <span>•</span>
@@ -3668,7 +3721,7 @@
                           <Tag tone={status.completed ? 'green' : 'slate'}>{status.pendingLabel}</Tag>
                         </div>
                         <h3 className="display-font text-xl font-800 text-ink">{course.title}</h3>
-                        <p className="mt-2 text-sm leading-6 text-slatey">{course.description || 'No description available.'}</p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slatey">{course.description || 'No description available.'}</p>
                       </div>
                       <div className="min-w-[140px]">
                         <div className="text-right text-sm text-slate-500">Due {fmtDate(assignment.dueDate)}</div>
@@ -3788,7 +3841,7 @@
                     <Tag tone="slate">{course.focusArea}</Tag>
                   </div>
                   <h3 className="display-font mt-4 text-2xl font-800 text-ink">{course.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-slatey">{course.description || 'No description available.'}</p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slatey">{course.description || 'No description available.'}</p>
                   <div className="mt-5">
                     <ProgressBar value={status.progressPct} />
                     <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
