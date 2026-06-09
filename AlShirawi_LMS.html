@@ -886,10 +886,12 @@
       return { kind: 'iframe', src: raw };
     };
     const getEmbeddableVideoUrl = (url) => detectVideoSource(url).src;
-    const makeCourseTabUrl = (courseId) => {
+    const makeCourseTabUrl = (courseId, asPreview = false) => {
       const next = new URL(window.location.href);
       next.searchParams.set('courseId', courseId);
       next.searchParams.set('courseView', '1');
+      if (asPreview) next.searchParams.set('preview', '1');
+      else next.searchParams.delete('preview');
       return next.toString();
     };
 
@@ -4025,6 +4027,7 @@
     const App = () => {
       const searchParams = new URLSearchParams(window.location.search);
       const standaloneCourseId = searchParams.get('courseView') === '1' ? searchParams.get('courseId') : '';
+      const standaloneIsPreview = searchParams.get('preview') === '1';
       const [sessionEmail, setSessionEmail] = useState(null);
       const [authInitialized, setAuthInitialized] = useState(false);
       const dataEnabled = authInitialized && !!sessionEmail;
@@ -4040,7 +4043,6 @@
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
       const [previewLearner, setPreviewLearner] = useState(false);
-      const [previewCourseId, setPreviewCourseId] = useState(null);
       const [showIntro, setShowIntro] = useState(false);
       const introPlayedRef = useRef(false);
       const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
@@ -4215,7 +4217,6 @@
         window.__lmsAuth?.signOut();
         setView('dashboard');
         setPreviewLearner(false);
-        setPreviewCourseId(null);
         introPlayedRef.current = false;
         sessionStorage.removeItem('lms_intro_played');
       };
@@ -4280,10 +4281,10 @@
 
       const adminLike = ['superadmin', 'admin', 'hr'].includes(user.role);
       const openCourseInNewTab = (courseId) => {
-        // In preview, open the course inline as the Sample Learner so completion
-        // is tracked for them (a new tab would lose the preview context).
-        if (inPreview) { setPreviewCourseId(courseId); return; }
-        window.open(makeCourseTabUrl(courseId), '_blank', 'noopener');
+        // Always opens in a new tab. In preview, the URL carries a `preview`
+        // flag so that tab still renders as the Sample Learner (otherwise it
+        // would load as the admin and show 0%).
+        window.open(makeCourseTabUrl(courseId, inPreview), '_blank', 'noopener');
       };
       const progressSummary = {
         quizAttemptsByUser: quizAttempts.reduce((acc, attempt) => {
@@ -4315,13 +4316,20 @@
       if (standaloneCourseId) {
         const standaloneCourse = courses.find((course) => course.id === standaloneCourseId);
         if (standaloneCourse) {
+          // Admin opened this from "Preview as Learner" → render as the Sample
+          // Learner (assigned to this course) so completion tracks for them.
+          const tabPreview = standaloneIsPreview && realAdminLike;
+          const tabUser = tabPreview ? SAMPLE_LEARNER : user;
+          const tabAssignments = tabPreview && !assignments.some((a) => a.email === SAMPLE_LEARNER.email && a.courseId === standaloneCourse.id)
+            ? [...assignments, { id: 'preview-tab-assignment', email: SAMPLE_LEARNER.email, courseId: standaloneCourse.id, dueDate: '', assignedAt: Date.now(), source: 'Preview', assignmentType: 'Essential' }]
+            : assignments;
           return (
             <CourseDetailPage
-              user={user}
+              user={tabUser}
               course={standaloneCourse}
               modules={modules}
               quizzes={quizzes}
-              assignments={assignments}
+              assignments={tabAssignments}
               progress={progress}
               setProgress={setProgress}
               quizAttempts={quizAttempts}
@@ -4337,27 +4345,9 @@
           {inPreview && (
             <div className="sticky top-0 z-40 flex items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-soft md:px-6">
               <span>👁 Previewing as <strong>{SAMPLE_LEARNER.name}</strong> — this is the learner's view (sample data, nothing is saved).</span>
-              <button onClick={() => { setPreviewLearner(false); setPreviewCourseId(null); setView('dashboard'); }} className="shrink-0 rounded-xl bg-white/20 px-3 py-1.5 font-bold hover:bg-white/30">Exit preview</button>
+              <button onClick={() => { setPreviewLearner(false); setView('dashboard'); }} className="shrink-0 rounded-xl bg-white/20 px-3 py-1.5 font-bold hover:bg-white/30">Exit preview</button>
             </div>
           )}
-          {inPreview && previewCourseId && (() => {
-            const previewCourse = courses.find((c) => c.id === previewCourseId);
-            if (!previewCourse) return null;
-            return (
-              <CourseDetailModal
-                user={user}
-                course={previewCourse}
-                modules={modules}
-                quizzes={quizzes}
-                assignments={previewAssignments}
-                progress={progress}
-                setProgress={setProgress}
-                quizAttempts={quizAttempts}
-                setQuizAttempts={setQuizAttempts}
-                onClose={() => setPreviewCourseId(null)}
-              />
-            );
-          })()}
           <Header
             user={user}
             onToggleNav={() => setNavOpen((prev) => !prev)}
