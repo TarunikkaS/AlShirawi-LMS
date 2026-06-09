@@ -915,28 +915,30 @@
 
       const visibleModules = getVisibleModulesForUser(modules, course.id, user);
       const completedModuleIds = progress.filter((entry) => entry.email === user.email && entry.courseId === course.id).map((entry) => entry.moduleId);
-      const completedModules = visibleModules.filter((module) => completedModuleIds.includes(module.id)).length;
       const moduleQuizzes = quizzes.filter((quiz) => quiz.scopeType === 'module' && visibleModules.some((module) => module.id === quiz.scopeId));
       const moduleQuizPassedCount = moduleQuizzes.filter((quiz) => hasPassedQuiz(quizAttempts, user.email, quiz.id)).length;
       const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
       const courseQuizPassed = courseQuiz ? hasPassedQuiz(quizAttempts, user.email, courseQuiz.id) : false;
 
+      // A module counts as done when: it has a module-quiz and that quiz is
+      // passed, OR it has no module-quiz and the learner scrolled through it.
+      const isModuleDone = (module) => {
+        const mq = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
+        return mq ? hasPassedQuiz(quizAttempts, user.email, mq.id) : completedModuleIds.includes(module.id);
+      };
+      const completedModules = visibleModules.filter(isModuleDone).length;
+
       const totalQuizCount = moduleQuizzes.length + (courseQuiz ? 1 : 0);
       const passedQuizCount = moduleQuizPassedCount + (courseQuiz && courseQuizPassed ? 1 : 0);
 
-      // Courses that HAVE any quiz are completed by passing all quizzes (the
-      // progress % reflects quizzes passed). Courses with NO quiz are completed
-      // by viewing every module — the learner scrolls to the bottom of each
-      // module — and the % then reflects modules viewed.
-      const hasQuiz = totalQuizCount > 0;
-      const progressPct = hasQuiz
-        ? Math.round((passedQuizCount / totalQuizCount) * 100)
-        : (visibleModules.length > 0 ? Math.round((completedModules / visibleModules.length) * 100) : 0);
+      // Progress is module-based: every module is one equal step, plus the
+      // course-wide quiz (if any) as one more step. So 1 of 4 modules = 25%.
+      const totalSteps = visibleModules.length + (courseQuiz ? 1 : 0);
+      const doneSteps = completedModules + (courseQuiz && courseQuizPassed ? 1 : 0);
+      const progressPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
 
-      const hasRequirement = visibleModules.length > 0 || totalQuizCount > 0;
-      const completed = hasQuiz
-        ? passedQuizCount === totalQuizCount
-        : (visibleModules.length > 0 && completedModules === visibleModules.length);
+      const hasRequirement = totalSteps > 0;
+      const completed = totalSteps > 0 && doneSteps === totalSteps;
       const pendingLabel = completed
         ? 'Completed'
         : !hasRequirement
@@ -3254,26 +3256,10 @@
 
         if (passed && course && Array.isArray(modules) && Array.isArray(assignments) && Array.isArray(progress) && Array.isArray(quizzes)) {
           const nextAttempts = [...quizAttempts, newAttempt];
-          const nextProgress = [...progress];
           const visibleModules = getVisibleModulesForUser(modules, course.id, user);
-          visibleModules.forEach((module) => {
-            const done = nextProgress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
-            if (done) return;
-            const moduleQuiz = quizzes.find((quizItem) => quizItem.scopeType === 'module' && quizItem.scopeId === module.id);
-            const shouldComplete = moduleQuiz
-              ? hasPassedQuiz(nextAttempts, user.email, moduleQuiz.id)
-              : true;
-            if (shouldComplete) {
-              nextProgress.push({
-                id: uid(),
-                email: user.email,
-                courseId: course.id,
-                moduleId: module.id,
-                completedAt: Date.now(),
-              });
-            }
-          });
-          const projected = courseStatusForUser({ user, course, modules, assignments, progress: nextProgress, quizzes, quizAttempts: nextAttempts });
+          // Module/course completion is derived from quiz passes + scrolled
+          // modules — passing this quiz alone shouldn't mark other modules done.
+          const projected = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts: nextAttempts });
           if (projected.completed) {
             setCompletionMessage({ kind: 'course', courseTitle: course.title });
           } else if (quiz.scopeType === 'module') {
@@ -3387,15 +3373,16 @@
       );
     };
 
-    const ModuleLearningCard = ({ module, course, index, total, user, progress, quizzes, quizAttempts, setOpenQuiz, enableScrollComplete = false, onReachEnd }) => {
-      const done = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+    const ModuleLearningCard = ({ module, course, index, total, user, progress, quizzes, quizAttempts, setOpenQuiz, onReachEnd }) => {
       const moduleQuiz = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
       const moduleQuizPassed = moduleQuiz ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id) : true;
-      // For no-quiz courses, this module is marked done once the learner
-      // scrolls its end-marker into view (i.e. reaches the bottom of it).
+      const scrolledDone = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
+      // A quiz module is done when its quiz is passed; a plain module is done
+      // once the learner scrolls its end-marker into view.
+      const done = moduleQuiz ? moduleQuizPassed : scrolledDone;
       const endRef = useRef(null);
       useEffect(() => {
-        if (!enableScrollComplete || done || !onReachEnd) return;
+        if (moduleQuiz || scrolledDone || !onReachEnd) return; // quiz modules complete via the quiz
         const node = endRef.current;
         if (!node) return;
         if (typeof IntersectionObserver === 'undefined') { onReachEnd(module.id); return; }
@@ -3406,7 +3393,7 @@
         }, { threshold: 0.1 });
         observer.observe(node);
         return () => observer.disconnect();
-      }, [enableScrollComplete, done, module.id]);
+      }, [moduleQuiz, scrolledDone, module.id]);
       return (
         <article className="module-card">
           <Reveal>
@@ -3540,41 +3527,15 @@
       const [openQuiz, setOpenQuiz] = useState(null);
       const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
       const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
-      // Courses with NO quiz are completed by scrolling through every module;
-      // courses WITH a quiz keep auto-marking quiz-less modules on open.
-      const hasAnyQuiz = status.totalQuizCount > 0;
 
-      // Mark a single module done once its end scrolls into view (no-quiz courses).
+      // Mark a plain (no-quiz) module done once its end scrolls into view.
+      // Quiz modules are completed by passing their quiz, not by scrolling.
       const markModuleViewed = (moduleId) => {
         setProgress((prev) => {
           if (prev.some((entry) => entry.email === user.email && entry.courseId === course.id && entry.moduleId === moduleId)) return prev;
           return [...prev, { id: uid(), email: user.email, courseId: course.id, moduleId, completedAt: Date.now() }];
         });
       };
-
-      useEffect(() => {
-        if (!visibleModules.length || !hasAnyQuiz) return;
-        const additions = [];
-        visibleModules.forEach((module) => {
-          const alreadyDone = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
-          if (alreadyDone) return;
-          const moduleQuiz = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
-          const shouldComplete = moduleQuiz
-            ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id)
-            : true;
-          if (!shouldComplete) return;
-          additions.push({
-            id: uid(),
-            email: user.email,
-            courseId: course.id,
-            moduleId: module.id,
-            completedAt: Date.now(),
-          });
-        });
-        if (additions.length) {
-          setProgress([...progress, ...additions]);
-        }
-      }, [visibleModules.map((module) => module.id).join('|'), quizAttempts, progress.length]);
 
       return (
         <>
@@ -3622,7 +3583,6 @@
                   quizzes={quizzes}
                   quizAttempts={quizAttempts}
                   setOpenQuiz={setOpenQuiz}
-                  enableScrollComplete={!hasAnyQuiz}
                   onReachEnd={markModuleViewed}
                 />
               ))}
@@ -4080,6 +4040,7 @@
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
       const [previewLearner, setPreviewLearner] = useState(false);
+      const [previewCourseId, setPreviewCourseId] = useState(null);
       const [showIntro, setShowIntro] = useState(false);
       const introPlayedRef = useRef(false);
       const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
@@ -4254,6 +4215,7 @@
         window.__lmsAuth?.signOut();
         setView('dashboard');
         setPreviewLearner(false);
+        setPreviewCourseId(null);
         introPlayedRef.current = false;
         sessionStorage.removeItem('lms_intro_played');
       };
@@ -4318,6 +4280,9 @@
 
       const adminLike = ['superadmin', 'admin', 'hr'].includes(user.role);
       const openCourseInNewTab = (courseId) => {
+        // In preview, open the course inline as the Sample Learner so completion
+        // is tracked for them (a new tab would lose the preview context).
+        if (inPreview) { setPreviewCourseId(courseId); return; }
         window.open(makeCourseTabUrl(courseId), '_blank', 'noopener');
       };
       const progressSummary = {
@@ -4372,9 +4337,27 @@
           {inPreview && (
             <div className="sticky top-0 z-40 flex items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-soft md:px-6">
               <span>👁 Previewing as <strong>{SAMPLE_LEARNER.name}</strong> — this is the learner's view (sample data, nothing is saved).</span>
-              <button onClick={() => { setPreviewLearner(false); setView('dashboard'); }} className="shrink-0 rounded-xl bg-white/20 px-3 py-1.5 font-bold hover:bg-white/30">Exit preview</button>
+              <button onClick={() => { setPreviewLearner(false); setPreviewCourseId(null); setView('dashboard'); }} className="shrink-0 rounded-xl bg-white/20 px-3 py-1.5 font-bold hover:bg-white/30">Exit preview</button>
             </div>
           )}
+          {inPreview && previewCourseId && (() => {
+            const previewCourse = courses.find((c) => c.id === previewCourseId);
+            if (!previewCourse) return null;
+            return (
+              <CourseDetailModal
+                user={user}
+                course={previewCourse}
+                modules={modules}
+                quizzes={quizzes}
+                assignments={previewAssignments}
+                progress={progress}
+                setProgress={setProgress}
+                quizAttempts={quizAttempts}
+                setQuizAttempts={setQuizAttempts}
+                onClose={() => setPreviewCourseId(null)}
+              />
+            );
+          })()}
           <Header
             user={user}
             onToggleNav={() => setNavOpen((prev) => !prev)}
