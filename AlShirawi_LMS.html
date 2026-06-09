@@ -123,6 +123,21 @@
         linear-gradient(135deg, rgba(29,78,216,0.06), rgba(15,118,110,0.06)),
         #ffffff;
     }
+    @keyframes introZoom {
+      0%   { transform: scale(0.25); opacity: 0; }
+      30%  { opacity: 1; }
+      65%  { transform: scale(1); opacity: 1; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+    @keyframes introFade {
+      0%, 72% { opacity: 1; }
+      100%    { opacity: 0; visibility: hidden; }
+    }
+    .intro-splash-bg { animation: introFade 1.9s ease-in-out forwards; }
+    .intro-splash-logo { animation: introZoom 1.9s ease-in-out forwards; }
+    @media (prefers-reduced-motion: reduce) {
+      .intro-splash-bg, .intro-splash-logo { animation-duration: 0.6s; }
+    }
     @media (max-width: 1024px) {
       .sidebar-mobile {
         position: fixed;
@@ -409,6 +424,13 @@
 
     const LmsLogo = ({ className = 'h-9' }) => (
       <img src="lms-logo.png" alt="Al Shirawi Equipment Group LMS" className={`${className} object-contain`} />
+    );
+
+    // Brief logo zoom-in shown right after a successful login.
+    const IntroSplash = () => (
+      <div className="intro-splash-bg fixed inset-0 z-[100] flex items-center justify-center bg-white">
+        <img src="lms-logo.png" alt="" className="intro-splash-logo w-64 max-w-[62vw]" />
+      </div>
     );
 
     const Button = ({ children, onClick, type = 'button', tone = 'primary', variant = 'solid', className = '', disabled = false }) => {
@@ -1097,10 +1119,13 @@
 
       const leftPanel = (
         <div className="relative flex flex-col justify-between p-10 rounded-3xl lg:rounded-r-none" style={{background:'linear-gradient(135deg,#1e3a8a 0%,#1d4ed8 60%,#2563eb 100%)'}}>
-          <div className="inline-flex items-center gap-3 rounded-2xl bg-white px-4 py-2 shadow-soft self-start">
-            <Logo className="h-12 w-auto" />
-            <span className="h-10 w-px bg-slate-200" />
-            <LmsLogo className="h-12 w-auto" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="inline-flex rounded-2xl bg-white px-4 py-3 shadow-soft">
+              <Logo className="h-12 w-auto" />
+            </div>
+            <div className="inline-flex rounded-2xl bg-white px-4 py-3 shadow-soft">
+              <LmsLogo className="h-16 w-auto" />
+            </div>
           </div>
           <div className="mt-10">
             <h1 className="display-font text-3xl font-800 leading-tight text-white">Al Shirawi Equipment Co<br/>Learning Management<br/>System</h1>
@@ -1202,6 +1227,10 @@
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
+            <div className="hidden rounded-xl bg-slate-50 px-2.5 py-1.5 shadow-soft sm:block">
+              <LmsLogo className="h-9 w-auto" />
+            </div>
+            <span className="hidden h-9 w-px bg-slate-200 sm:block" />
             <div className="hidden text-right md:block">
               <div className="text-sm font-semibold text-ink">{user.name}</div>
               <div className="text-xs text-slate-500">{roleLabel(user.role)} • {user.email}</div>
@@ -3963,6 +3992,8 @@
       const [view, setView] = useState('dashboard');
       const [navOpen, setNavOpen] = useState(false);
       const [previewLearner, setPreviewLearner] = useState(false);
+      const [showIntro, setShowIntro] = useState(false);
+      const introPlayedRef = useRef(false);
       const dataStates = [usersState, coursesState, modulesState, assignmentsState, assignmentRulesState, quizzesState, progressState, quizAttemptsState, certificatesState];
       const dataLoading = dataStates.some((state) => state.loading);
       const dataError = dataStates.map((state) => state.error).find(Boolean);
@@ -3983,6 +4014,20 @@
           if (!user) setView('dashboard');
         });
       }, []);
+
+      // Play the logo zoom-in once, right after the user actually lands in the
+      // app (resolved account). Guarded so it doesn't replay on every reload.
+      useEffect(() => {
+        if (!sessionEmail || introPlayedRef.current) return;
+        if (sessionStorage.getItem('lms_intro_played')) { introPlayedRef.current = true; return; }
+        const resolved = users.find((item) => item.email === sessionEmail);
+        if (!resolved) return;
+        introPlayedRef.current = true;
+        sessionStorage.setItem('lms_intro_played', '1');
+        setShowIntro(true);
+        const t = setTimeout(() => setShowIntro(false), 1900);
+        return () => clearTimeout(t);
+      }, [sessionEmail, users]);
 
       useEffect(() => {
         const bootstrapExists = users.some((user) => user.email === SUPER_EMAIL);
@@ -4120,6 +4165,9 @@
       const logout = () => {
         window.__lmsAuth?.signOut();
         setView('dashboard');
+        setPreviewLearner(false);
+        introPlayedRef.current = false;
+        sessionStorage.removeItem('lms_intro_played');
       };
 
       if (!authInitialized || (dataEnabled && dataLoading)) {
@@ -4165,13 +4213,17 @@
       // While previewing, the whole UI renders as the in-memory sample learner.
       const user = inPreview ? SAMPLE_LEARNER : realUser;
 
-      // Sample data injected only during preview (never persisted) so the
-      // learner views and a certificate have something to show.
+      // Real courses can be assigned to the Sample Learner from Assignment
+      // Management; those persist by email and show up here in preview.
+      // We only inject a throwaway sample assignment / certificate when the
+      // Sample Learner has none of its own yet, so the view isn't empty.
       const sampleSourceCourse = courses[0];
-      const previewAssignments = inPreview && sampleSourceCourse
+      const sampleHasRealAssignment = assignments.some((a) => a.email === SAMPLE_LEARNER.email);
+      const sampleHasRealCert = certificates.some((c) => c.email === SAMPLE_LEARNER.email);
+      const previewAssignments = inPreview && sampleSourceCourse && !sampleHasRealAssignment
         ? [...assignments, { id: 'sample-assignment', email: SAMPLE_LEARNER.email, courseId: sampleSourceCourse.id, dueDate: '', assignedAt: Date.now(), source: 'Preview sample', assignmentType: 'Essential' }]
         : assignments;
-      const previewCertificates = inPreview && sampleSourceCourse
+      const previewCertificates = inPreview && sampleSourceCourse && !sampleHasRealCert
         ? [...certificates, { id: 'sample-cert', email: SAMPLE_LEARNER.email, learnerName: SAMPLE_LEARNER.name, employeeId: SAMPLE_LEARNER.employeeId, courseId: sampleSourceCourse.id, courseTitle: sampleSourceCourse.title, courseType: sampleSourceCourse.type, badgeTitle: `${sampleSourceCourse.title} Completion Badge`, issuedAt: Date.now(), emailStatus: `Certificate sent to ${SAMPLE_LEARNER.email}` }]
         : certificates;
 
@@ -4194,7 +4246,7 @@
           if (view === 'participants') return <ParticipantManagement users={users} setUsers={setUsers} currentUser={user} />;
           if (view === 'course-mgmt') return <CourseManagement courses={courses} setCourses={setCourses} />;
           if (view === 'module-mgmt') return <ModuleManagement courses={courses} modules={modules} setModules={setModules} />;
-          if (view === 'assignment-mgmt') return <AssignmentManagement users={users} courses={courses} assignments={assignments} setAssignments={setAssignments} assignmentRules={assignmentRules} setAssignmentRules={setAssignmentRules} />;
+          if (view === 'assignment-mgmt') return <AssignmentManagement users={[...users, SAMPLE_LEARNER]} courses={courses} assignments={assignments} setAssignments={setAssignments} assignmentRules={assignmentRules} setAssignmentRules={setAssignmentRules} />;
           if (view === 'quiz-mgmt') return <QuizManagement courses={courses} modules={modules} quizzes={quizzes} setQuizzes={setQuizzes} />;
           if (view === 'reports') return <Reports users={users} courses={courses} assignments={assignments} modules={modules} quizzes={quizzes} quizAttempts={quizAttempts} progress={progress} certificates={certificates} />;
           if (view === 'recognition') return <RecognitionHub viewer={user} courses={courses} certificates={certificates} />;
@@ -4227,6 +4279,7 @@
 
       return (
         <div className="page-shell min-h-screen">
+          {showIntro && <IntroSplash />}
           {inPreview && (
             <div className="sticky top-0 z-40 flex items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-soft md:px-6">
               <span>👁 Previewing as <strong>{SAMPLE_LEARNER.name}</strong> — this is the learner's view (sample data, nothing is saved).</span>
