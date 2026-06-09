@@ -923,20 +923,25 @@
 
       const totalQuizCount = moduleQuizzes.length + (courseQuiz ? 1 : 0);
       const passedQuizCount = moduleQuizPassedCount + (courseQuiz && courseQuizPassed ? 1 : 0);
-      const progressPct = totalQuizCount > 0
+
+      // Courses that HAVE any quiz are completed by passing all quizzes (the
+      // progress % reflects quizzes passed). Courses with NO quiz are completed
+      // by viewing every module — the learner scrolls to the bottom of each
+      // module — and the % then reflects modules viewed.
+      const hasQuiz = totalQuizCount > 0;
+      const progressPct = hasQuiz
         ? Math.round((passedQuizCount / totalQuizCount) * 100)
-        : 0;
+        : (visibleModules.length > 0 ? Math.round((completedModules / visibleModules.length) * 100) : 0);
 
       const hasRequirement = visibleModules.length > 0 || totalQuizCount > 0;
-      const completed = totalQuizCount > 0
-        && passedQuizCount === totalQuizCount;
+      const completed = hasQuiz
+        ? passedQuizCount === totalQuizCount
+        : (visibleModules.length > 0 && completedModules === visibleModules.length);
       const pendingLabel = completed
         ? 'Completed'
         : !hasRequirement
           ? 'Content pending'
-          : totalQuizCount === 0
-            ? 'No quiz yet'
-            : 'In progress';
+          : 'In progress';
 
       return {
         assigned: true,
@@ -3382,10 +3387,26 @@
       );
     };
 
-    const ModuleLearningCard = ({ module, course, index, total, user, progress, quizzes, quizAttempts, setOpenQuiz }) => {
+    const ModuleLearningCard = ({ module, course, index, total, user, progress, quizzes, quizAttempts, setOpenQuiz, enableScrollComplete = false, onReachEnd }) => {
       const done = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
       const moduleQuiz = quizzes.find((quiz) => quiz.scopeType === 'module' && quiz.scopeId === module.id);
       const moduleQuizPassed = moduleQuiz ? hasPassedQuiz(quizAttempts, user.email, moduleQuiz.id) : true;
+      // For no-quiz courses, this module is marked done once the learner
+      // scrolls its end-marker into view (i.e. reaches the bottom of it).
+      const endRef = useRef(null);
+      useEffect(() => {
+        if (!enableScrollComplete || done || !onReachEnd) return;
+        const node = endRef.current;
+        if (!node) return;
+        if (typeof IntersectionObserver === 'undefined') { onReachEnd(module.id); return; }
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) { onReachEnd(module.id); observer.disconnect(); }
+          });
+        }, { threshold: 0.1 });
+        observer.observe(node);
+        return () => observer.disconnect();
+      }, [enableScrollComplete, done, module.id]);
       return (
         <article className="module-card">
           <Reveal>
@@ -3509,6 +3530,7 @@
               </div>
             </Reveal>
           )}
+          <div ref={endRef} aria-hidden="true" className="h-px w-full" />
         </article>
       );
     };
@@ -3518,9 +3540,20 @@
       const [openQuiz, setOpenQuiz] = useState(null);
       const courseQuiz = quizzes.find((quiz) => quiz.scopeType === 'course' && quiz.scopeId === course.id);
       const status = courseStatusForUser({ user, course, modules, assignments, progress, quizzes, quizAttempts });
+      // Courses with NO quiz are completed by scrolling through every module;
+      // courses WITH a quiz keep auto-marking quiz-less modules on open.
+      const hasAnyQuiz = status.totalQuizCount > 0;
+
+      // Mark a single module done once its end scrolls into view (no-quiz courses).
+      const markModuleViewed = (moduleId) => {
+        setProgress((prev) => {
+          if (prev.some((entry) => entry.email === user.email && entry.courseId === course.id && entry.moduleId === moduleId)) return prev;
+          return [...prev, { id: uid(), email: user.email, courseId: course.id, moduleId, completedAt: Date.now() }];
+        });
+      };
 
       useEffect(() => {
-        if (!visibleModules.length) return;
+        if (!visibleModules.length || !hasAnyQuiz) return;
         const additions = [];
         visibleModules.forEach((module) => {
           const alreadyDone = progress.some((entry) => entry.email === user.email && entry.moduleId === module.id);
@@ -3589,6 +3622,8 @@
                   quizzes={quizzes}
                   quizAttempts={quizAttempts}
                   setOpenQuiz={setOpenQuiz}
+                  enableScrollComplete={!hasAnyQuiz}
+                  onReachEnd={markModuleViewed}
                 />
               ))}
             </div>
