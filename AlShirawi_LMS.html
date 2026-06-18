@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, getIdToken } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
@@ -265,7 +265,7 @@
 
     const STORAGE_PREFIX = 'alshirawi_lms_v2_';
     const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@equipment\.ae$/i;
-    const SUPER_EMAIL = atob('dGFydW5pa2thLnVAZXF1aXBtZW50LmFl');
+    const SUPER_EMAIL = atob('dWRheS5iYWxhQGVxdWlwbWVudC5hZQ==');  // uday.bala@equipment.ae
     const BUSINESS_LINES = [
       'Al Shirawi Equipment Co. – Process Equipment Division',
       'Clear Water Solutions LLC',
